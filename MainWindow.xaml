@@ -1,0 +1,26 @@
+﻿<Window x:Class="MachineEar_MIC.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:scottplot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
+        Title="MachineEar MIC" Height="600" Width="520" Background="#f5f6fa">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,10">
+            <Label Content="마이크 장치:" FontWeight="Bold" VerticalAlignment="Center"/>
+            <ComboBox x:Name="comboDevices" Width="250" Margin="10,0,0,0" SelectionChanged="comboDevices_SelectionChanged"/>
+        </StackPanel>
+        <GroupBox Header="실시간 오디오 파형" Grid.Row="1" Margin="0,0,0,10" Padding="10">
+            <scottplot:WpfPlot x:Name="wpfPlot" Height="150"/>
+        </GroupBox>
+        <GroupBox Header="실시간 FFT (주파수 스펙트럼)" Grid.Row="2" Margin="0,0,0,113" Padding="10" Grid.RowSpan="2">
+            <scottplot:WpfPlot x:Name="wpfPlotFFT" Height="150"/>
+        </GroupBox>
+        <TextBlock x:Name="txtPeak" Grid.Row="3" FontSize="18" FontWeight="Bold" Foreground="#e84118" TextAlignment="Center" Margin="0,77,0,0"/>
+    </Grid>
+</Window>
