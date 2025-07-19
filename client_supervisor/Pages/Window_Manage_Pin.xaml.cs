@@ -55,7 +55,7 @@ namespace client_supervisor
                 pinList.Select(m => new ClientPin_Map
                 {
                     Idx = m.Idx,
-                    Name = m.Name,
+                    Name_Pin = m.Name_Pin,
                     MapIndex = m.MapIndex,
                     Name_Location = m.Name_Location,
                     PosX = m.PosX,
@@ -97,7 +97,7 @@ namespace client_supervisor
                     this.Capture_PinList.Select(m => new ClientPin
                     {
                         Idx = m.Idx,
-                        Name = m.Name,
+                        Name_Pin = m.Name_Pin,
                         MapIndex = m.MapIndex,
                         Name_Location = m.Name_Location,
                         PosX = m.PosX,

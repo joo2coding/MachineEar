@@ -7,6 +7,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -30,8 +31,10 @@ namespace client_supervisor
         string path_map_meta = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps/meta_maps.json");
 
         private DispatcherTimer? timer_curr;
-        private TcpClientService _clientService;
+        private TcpClientService clientService;
         private IPAddress_Local iPAddress;
+        private TaskCompletionSource<DataReceivedEventArgs> _responseTcs;
+        private readonly object _responseTcsLock = new object(); // _responseTcs 접근을 위한 락 객체
 
         private bool isPinModeEnabled { get; set; }
         private double _minScale = 1.0;
@@ -55,15 +58,14 @@ namespace client_supervisor
         {
             InitializeComponent();
             InitializeTimer();
-            InitializeClientService();
 
             this.isPinModeEnabled = false;      // 핀 추가 값 초기화
 
-            //this.list_kind_abnormal = new List<string>();
+            this.List_Kind_Anomaly = new List<string>();
             //this.list_kind_abnormal.Add("과부하");
             //this.list_kind_abnormal.Add("문제해결");
             //this.list_kind_abnormal.Add("수리불가");
-            //this.CreateRadioButtons_Click(this.list_kind_abnormal);
+            //this.CreateRadioButtons_Click(this.List_Kind_Anomaly);
 
             this.load_serveraddr(this.path_server);
             this.MapSectors = this.load_maplist(true);      // 도면 불러오기
@@ -249,16 +251,16 @@ namespace client_supervisor
         // 서버와 연결 버튼 클릭 시 실행
         private void ConnTCP_Click(object sender, RoutedEventArgs e)
         {
-            // 서버와 연결 시도
-            this._clientService.ConnectAsync(this.iPAddress.IP, this.iPAddress.Port);
+            // 소켓 생성 및 초기화
+            this.InitializeCustomComponents();
 
-            // 서버 연결 완료 시 연결 프로토콜 송신, 자동으로 순차적으로 실행
-            Protocol protocol = new Protocol();
+            // 서버와 연결 시도
+            this.clientService.ConnectAsync(this.iPAddress.IP, this.iPAddress.Port);
         }
 
         private void DisconnTCP_Click(object sender, RoutedEventArgs e)
         {
-            this._clientService.Dispose();
+            this.clientService.Dispose();
             this.MapSectors.Clear();        // 도면 초기화
             baseImage.Source = null;        // 도면 이미지 초기화
         }
@@ -276,14 +278,17 @@ namespace client_supervisor
 
         /*-------------------------------------------------------------------*/
         // 소켓 부분 이벤트 핸들러
-        private void InitializeClientService()
+        private void InitializeCustomComponents()
         {
-            _clientService = new TcpClientService();
-            // TcpClientService에서 발생하는 이벤트를 구독합니다.
-            _clientService.ConnectionStatusChanged += ClientService_ConnectionStatusChanged;
-            _clientService.MessageReceived += ClientService_MessageReceived;
-            _clientService.ErrorOccurred += ClientService_ErrorOccurred;
+            // TcpClientService 인스턴스 생성
+            clientService = new TcpClientService();
+
+            // TcpClientService의 이벤트 핸들러 등록
+            clientService.ConnectionStatusChanged += ClientService_ConnectionStatusChanged;
+            clientService.ErrorOccurred += ClientService_ErrorOccurred;
+            clientService.DataReceived += ClientService_DataReceived;
         }
+        
         // --- TcpClientService 이벤트 핸들러 ---
         private void ClientService_ConnectionStatusChanged(object sender, bool isConnected)
         {
@@ -292,25 +297,68 @@ namespace client_supervisor
             {
                 if (isConnected)
                 {
-                    Header_Conn.IsEnabled = false;
-                    Header_Disconn.IsEnabled = true;
+                    OnConnectedToServer();
                 }
                 else
                 {
-                    Header_Conn.IsEnabled = true;
-                    Header_Disconn.IsEnabled = false;
+                    OnDisconnectedFromServer();
                 }
                 UpdateStatus(isConnected ? "연결됨" : "연결 끊김");
             });
         }
-
-        // 수신된 데이터 보관
-        private void ClientService_MessageReceived(object sender, string message)
+        // 서버에 연결되었을 때 실행되는 메서드
+        private async Task OnConnectedToServer()
         {
-            Dispatcher.Invoke(() =>
+            Header_Conn.IsEnabled = false;
+            Header_Disconn.IsEnabled = true;
+
+            // 연결 시 특정 프로토콜을 연속으로 실행
+            string request100 = "{ \"PROTOCOL\" : \"1-0-0\" }";
+            await clientService.SendMessageWithHeaderAsync(request100);
+
+            Console.WriteLine("1-0-0 응답 대기 중...");
+            DataReceivedEventArgs response100 = await WaitForResponseAsync();
+            Console.WriteLine("1-0-0 응답 수신 완료.");
+
+
+        }
+        // 서버 연결이 끊어졌을 때 실행되는 메서드
+        private void OnDisconnectedFromServer()
+        {
+            Header_Conn.IsEnabled = true;
+            Header_Disconn.IsEnabled = false;
+
+            // 현재 대기 중인 TaskCompletionSource가 있다면 취소
+            lock (_responseTcsLock)
             {
-                // 여기서 데이터 파싱하기
-            });
+                _responseTcs?.TrySetCanceled();
+                _responseTcs = null;
+            }
+        }
+        // 특정 응답을 기다리는 비동기 헬퍼 메서드
+        private Task<DataReceivedEventArgs> WaitForResponseAsync()
+        {
+            lock (_responseTcsLock)
+            {
+                // 이미 대기 중인 TaskCompletionSource가 있다면 오류 또는 취소 처리
+                if (_responseTcs != null && !_responseTcs.Task.IsCompleted)
+                {
+                    _responseTcs.TrySetCanceled(); // 이전 대기 취소
+                }
+                _responseTcs = new TaskCompletionSource<DataReceivedEventArgs>();
+                return _responseTcs.Task;
+            }
+        }
+
+        // 통합 데이터 수신 이벤트 핸들러
+        private void ClientService_DataReceived(object sender, DataReceivedEventArgs e)
+        {
+            // UI 업데이트는 UI 스레드에서 수행되어야 합니다.
+            Dispatcher.Invoke(new Action(() =>
+            {
+                Console.WriteLine($"MainWindow - Recv Json : {e.JsonData}");
+                Console.WriteLine($"MainWindow - Recv File Data : {e.BinaryData.Length}");
+            }));
         }
 
         private void ClientService_ErrorOccurred(object sender, string errorMessage)
@@ -352,10 +400,9 @@ namespace client_supervisor
                 IsChecked = isChecked, // 초기 선택 상태 설정
                 Margin = new Thickness(3), // 여백 설정
                 FontSize = 12, // 글자 크기 설정
-                //Foreground = Brushes.DarkBlue // 글자 색상 설정 (선택 사항)
             };
 
-            // 이벤트 핸들러 추가 (선택 사항)
+            // 이벤트 핸들러 추가
             newRadioButton.Checked += RadioButton_Checked;
             newRadioButton.IsEnabled = false;
             parentPanel.Children.Add(newRadioButton); // 패널에 라디오 버튼 추가
@@ -369,7 +416,6 @@ namespace client_supervisor
                 //MessageBox.Show($"{radioButton.Content}이(가) 선택되었습니다.");
             }
         }
-
         // 라디오 버튼 생성
         private void CreateRadioButtons_Click(List<string> list_name)
         {
@@ -378,6 +424,19 @@ namespace client_supervisor
             foreach (string name in list_name)
             {
                 AddRadioButtonToPanel(wrap_kind_anomaly, name, "Kind_Anomaly");
+            }
+        }
+        // 라디오버튼 활성화, 비활성화
+        private void RadioGroupChangeState(bool state = true)
+        {
+            foreach (UIElement child in wrap_kind_anomaly.Children)
+            {
+                if (child is RadioButton radioButton)
+                {
+                    // 라디오버튼 초기화
+                    radioButton.IsChecked = false; 
+                    radioButton.IsEnabled = state;  
+                }
             }
         }
 
@@ -486,8 +545,8 @@ namespace client_supervisor
             {
                 ClientPin pin_new = new ClientPin
                 {
-                    Idx = this.PinList.Count + 1,
-                    Name = add_Pin.TextBox_Name.Text,
+                    Idx = 0,
+                    Name_Pin = add_Pin.TextBox_Name.Text,
                     MapIndex = this.MapSectors[this.idx_map].Idx,
                     Name_Location = add_Pin.TextBox_Location.Text,
                     PosX = actualX,
@@ -497,6 +556,7 @@ namespace client_supervisor
                     State_Anomaly = 0,
                     Name_Manager = add_Pin.TextBox_Manager.Text
                 };
+
                 pin_new.AddHandler(ClientPin.PinClickedEvent, new RoutedEventHandler(ClientPin_PinClicked));    // 이벤트 핸들러 등록, 핀 클릭 시 이벤트 발생
                 pin_new.ChangeColorMode(0); // 기본 모드로 설정
 
@@ -628,6 +688,7 @@ namespace client_supervisor
             {
                 // 핀 클릭 시 세부사항 패널 활성화
                 label_data_pin.Content = clickedPin.Idx;
+                label_data_name.Content = clickedPin.Name_Pin;
                 label_data_map.Content = MapSectors.FirstOrDefault(sector => sector.Idx == clickedPin.MapIndex)?.Name;
                 label_data_loc.Content = clickedPin.Name_Location;
                 label_data_manager.Content = clickedPin.Name_Manager;
@@ -641,8 +702,9 @@ namespace client_supervisor
         // 화면 전환 시 세부사항 패널 초기화
         private void ResetDetailPanel()
         {
-            label_data_pin.ClearValue(ContentProperty);
             label_data_map.ClearValue(ContentProperty);
+            label_data_pin.ClearValue(ContentProperty);
+            label_data_name.ClearValue(ContentProperty);
             label_data_loc.ClearValue(ContentProperty);
             label_data_manager.ClearValue(ContentProperty);
             label_data_state.ClearValue(ContentProperty);
@@ -651,7 +713,10 @@ namespace client_supervisor
         // 상황 패널 초기화
         private void ResetDetailPanel_Situation()
         {
-
+            label_start_datetime.ClearValue(ContentProperty);
+            label_proc_datetime.ClearValue(ContentProperty);
         }
+
+        
     }
 }

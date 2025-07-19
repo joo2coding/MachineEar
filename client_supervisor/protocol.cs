@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Text;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
 namespace client_supervisor
@@ -11,7 +13,7 @@ namespace client_supervisor
         /// <summary>
         /// 생성자 실행 시 자동으로 접속 요청 시퀀스부터 순차적으로 진행
         /// </summary>
-        public Protocol()
+        public Protocol(string protocol, ref JsonObject data_json, ref Vector<byte> data_file)
         {
 
         }

@@ -177,47 +177,57 @@
                                         <RowDefinition Height="*"/>
                                         <RowDefinition Height="*"/>
                                         <RowDefinition Height="*"/>
+                                        <RowDefinition Height="*"/>
                                     </Grid.RowDefinitions>
 
+                                    
+
                                     <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="0" Grid.Column="0">
-                                        <Label x:Name="content_data_pin"  Content="핀 번호" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                        <Label x:Name="content_data_map"  Content="지도 이름" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
                                     </Border>
                                     <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="0" Grid.Column="1">
+                                        <Label x:Name="label_data_map" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+                                    
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="1" Grid.Column="0">
+                                        <Label x:Name="content_data_pin"  Content="핀 번호" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="1" Grid.Column="1">
                                         <Label x:Name="label_data_pin" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
                                     </Border>
 
-                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="1" Grid.Column="0">
-                                        <Label x:Name="content_data_map"  Content="지도 이름" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
-                                    </Border>
-                                    <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="1" Grid.Column="1">
-                                        <Label x:Name="label_data_map" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
-                                    </Border>
-
                                     <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="2" Grid.Column="0">
-                                        <Label x:Name="content_data_loc"  Content="위치" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                        <Label x:Name="content_data_name"  Content="핀 이름" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
                                     </Border>
                                     <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="2" Grid.Column="1">
-                                        <Label x:Name="label_data_loc" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                        <Label x:Name="label_data_name" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
                                     </Border>
 
                                     <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="3" Grid.Column="0">
-                                        <Label x:Name="content_data_manager"  Content="담당자" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                        <Label x:Name="content_data_loc"  Content="위치" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
                                     </Border>
                                     <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="3" Grid.Column="1">
-                                        <Label x:Name="label_data_manager" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                        <Label x:Name="label_data_loc" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
                                     </Border>
 
                                     <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="4" Grid.Column="0">
-                                        <Label x:Name="content_data_state"  Content="작동상태" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                        <Label x:Name="content_data_manager"  Content="담당자" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
                                     </Border>
                                     <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="4" Grid.Column="1">
+                                        <Label x:Name="label_data_manager" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="5" Grid.Column="0">
+                                        <Label x:Name="content_data_state"  Content="작동상태" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="5" Grid.Column="1">
                                         <Label x:Name="label_data_state" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
                                     </Border>
 
-                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0" Grid.Row="5" Grid.Column="0">
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0" Grid.Row="6" Grid.Column="0">
                                         <Label x:Name="content_data_abnormal"  Content="이상여부" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
-                                    <Border BorderBrush="Gray" Grid.Row="5" Grid.Column="1">
+                                    <Border BorderBrush="Gray" Grid.Row="6" Grid.Column="1">
                                         <Label x:Name="label_data_abnormal" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
                                     </Border>
                                 </Grid>

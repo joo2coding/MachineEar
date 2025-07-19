@@ -41,16 +41,16 @@ namespace client_supervisor
             }
         }
 
-        private string _name;
-        public string Name
+        private string _name_pin;
+        public string Name_Pin
         {
-            get { return _name; }
+            get { return _name_pin; }
             set
             {
-                if (_name != value)
+                if (_name_pin != value)
                 {
-                    _name = value;
-                    OnPropertyChanged(nameof(Name));
+                    _name_pin = value;
+                    OnPropertyChanged(nameof(Name_Pin));
                 }
             }
         }
