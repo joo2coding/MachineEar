@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -10,6 +11,19 @@ using System.Threading.Tasks;
 
 namespace client_supervisor
 {
+    public struct WorkItem
+    {
+        public string Protocol { get; set; }
+        public JObject JsonData { get; set; }
+        public byte[] BinaryData { get; set; }
+
+        public WorkItem()
+        {
+            Protocol = string.Empty;
+            BinaryData = new byte[0];
+            JsonData = new JObject();
+        }
+    }
     public class IPAddress_Local
     {
         public string IP { get; set; }
@@ -23,7 +37,8 @@ namespace client_supervisor
 
     public class DataReceivedEventArgs : EventArgs
     {
-        public string JsonData { get; private set; }
+        public string Protocol { get; set; }
+        public JObject JsonData { get; private set; }
         public byte[] BinaryData { get; private set; }
 
         /// <summary>
@@ -31,9 +46,10 @@ namespace client_supervisor
         /// </summary>
         /// <param name="jsonData">수신된 JSON 문자열 (없으면 null 또는 빈 문자열)</param>
         /// <param name="binaryData">수신된 바이너리 바이트 배열 (없으면 null 또는 빈 배열)</param>
-        public DataReceivedEventArgs(string jsonData, byte[] binaryData)
+        public DataReceivedEventArgs(string protocol, JObject jsonData, byte[] binaryData)
         {
-            JsonData = jsonData ?? string.Empty; // null이면 빈 문자열로 초기화
+            Protocol = protocol ?? string.Empty;
+            JsonData = jsonData ?? new JObject(); // null이면 빈 문자열로 초기화
             BinaryData = binaryData ?? new byte[0]; // null이면 빈 배열로 초기화
         }
     }
@@ -71,7 +87,9 @@ namespace client_supervisor
         private int _jsonSize = 0;       // 헤더에서 읽은 JSON 데이터 크기
 
         private string _parsedJsonData = string.Empty;
+        private JObject _parsedJsonConv = new JObject();
         private byte[] _parsedBinaryData = new byte[0];
+        private string _parseProtocol = string.Empty;
 
         public TcpClientService()
         {
@@ -245,6 +263,8 @@ namespace client_supervisor
                                 byte[] jsonBytes = new byte[_jsonSize];
                                 _currentMessageBuffer.Read(jsonBytes, 0, _jsonSize); // JSON 크기만큼 데이터 읽기
                                 _parsedJsonData = Encoding.UTF8.GetString(jsonBytes);
+                                _parsedJsonConv = JObject.Parse(_parsedJsonData);
+                                _parseProtocol = _parsedJsonConv["PROTOCOL"].ToString();
                                 //Console.WriteLine($"JSON 데이터 수신: {_parsedJsonData}");
                             }
                             else
@@ -289,7 +309,7 @@ namespace client_supervisor
                             }
 
                             // 하나의 완전한 메시지 처리가 완료되었으므로 통합 이벤트 발생
-                            OnDataReceived(new DataReceivedEventArgs(_parsedJsonData, _parsedBinaryData));
+                            OnDataReceived(new DataReceivedEventArgs(_parseProtocol, _parsedJsonConv, _parsedBinaryData));
 
                             // 버퍼 정리 및 상태 초기화
                             CleanupMessageBuffer();
@@ -338,7 +358,7 @@ namespace client_supervisor
         /// <param name="jsonMessage">전송할 JSON 메시지 (null일 수 있음)</param>
         /// <param name="binaryData">전송할 바이너리 데이터 (null일 수 있음)</param>
         /// <returns>전송 성공 여부</returns>
-        public async Task<bool> SendMessageWithHeaderAsync(string jsonMessage, byte[] binaryData = null)
+        public async Task<bool> SendMessageWithHeaderAsync(WorkItem item)
         {
             if (!IsConnected)
             {
@@ -348,8 +368,12 @@ namespace client_supervisor
 
             try
             {
-                byte[] jsonBytes = Encoding.UTF8.GetBytes(jsonMessage ?? ""); // JSON 메시지가 없으면 빈 문자열
-                byte[] fileBytes = binaryData ?? new byte[0]; // 바이너리 데이터가 없으면 빈 배열
+                item.JsonData["PROTOCOL"] = item.Protocol;      // JSON에 프로토콜 객체 입력
+
+                string json_conv = item.JsonData.ToString();
+
+                byte[] jsonBytes = Encoding.UTF8.GetBytes(json_conv ?? ""); // JSON 메시지가 없으면 빈 문자열
+                byte[] fileBytes = item.BinaryData ?? new byte[0]; // 바이너리 데이터가 없으면 빈 배열
 
                 int jsonSize = jsonBytes.Length;
                 int totalSize = jsonSize + fileBytes.Length; // 헤더(8) + JSON + 바이너리
@@ -378,7 +402,8 @@ namespace client_supervisor
 
                     byte[] fullMessage = stream.ToArray();
                     await _clientSocket.SendAsync(new ArraySegment<byte>(fullMessage), SocketFlags.None);
-                    Console.WriteLine($"[전송 완료]: 전체 {totalSize} 바이트 (JSON: {jsonSize} 바이트, 바이너리: {fileBytes.Length} 바이트)");
+                    //Console.WriteLine($"[전송 완료]: 전체 {totalSize} 바이트 (JSON: {jsonSize} 바이트, 바이너리: {fileBytes.Length} 바이트)");
+                    Console.WriteLine($"[Send] Protocol : {item.Protocol}");
                 }
                 return true;
             }

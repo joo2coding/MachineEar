@@ -36,11 +36,12 @@ namespace client_supervisor
         private TaskCompletionSource<DataReceivedEventArgs> _responseTcs;
         private readonly object _responseTcsLock = new object(); // _responseTcs 접근을 위한 락 객체
 
+        /*-------------------------------------------------------------------*/
+        // 각종 변수 선언
+        // 지도 출력 관련
         private bool isPinModeEnabled { get; set; }
         private double _minScale = 1.0;
 
-        /*-------------------------------------------------------------------*/
-        // 각종 변수 선언
         // 지도 목록
         public ObservableCollection<MapSector> MapSectors { get; set; } = new ObservableCollection<MapSector>();
         private int idx_map = 0;
@@ -51,14 +52,17 @@ namespace client_supervisor
         // 현재 접속된 클라이언트(마이크) 목록
         public ObservableCollection<string> MACList { get; set; } = new ObservableCollection<string>();
 
+        // 고장 원인 종류
+        public List<string> List_Kind_Error { get; set; } = new List<string>();
+
         // 이상 여부 종류
         public List<string> List_Kind_Anomaly { get; set; } = new List<string>();
 
         public MainWindow()
         {
+            this.AddRecvProtocol();
             InitializeComponent();
             InitializeTimer();
-
             this.isPinModeEnabled = false;      // 핀 추가 값 초기화
 
             this.List_Kind_Anomaly = new List<string>();
@@ -261,8 +265,13 @@ namespace client_supervisor
         private void DisconnTCP_Click(object sender, RoutedEventArgs e)
         {
             this.clientService.Dispose();
-            this.MapSectors.Clear();        // 도면 초기화
             baseImage.Source = null;        // 도면 이미지 초기화
+
+            // 각종 리스트 초기화
+            this.List_Kind_Anomaly.Clear();
+            this.List_Kind_Error.Clear();
+            this.PinList.Clear();
+            this.MapSectors.Clear();        // 도면 초기화
         }
         private void EditTCP_Click(object sender, RoutedEventArgs e)
         {
@@ -311,16 +320,21 @@ namespace client_supervisor
         {
             Header_Conn.IsEnabled = false;
             Header_Disconn.IsEnabled = true;
+            WorkItem send_item = new();
 
-            // 연결 시 특정 프로토콜을 연속으로 실행
-            string request100 = "{ \"PROTOCOL\" : \"1-0-0\" }";
-            await clientService.SendMessageWithHeaderAsync(request100);
+            // 접속 요청 송신 및 수신
+            send_item.Protocol = "1-0-0";
+            await clientService.SendMessageWithHeaderAsync(this.ExcuteCommand_Send(send_item));
+            DataReceivedEventArgs response100 = await WaitForResponseAsync();;
 
-            Console.WriteLine("1-0-0 응답 대기 중...");
-            DataReceivedEventArgs response100 = await WaitForResponseAsync();
-            Console.WriteLine("1-0-0 응답 수신 완료.");
+            // 연결이 유지될때만 아래 태스크 실행, 연결이 종료되면 수행 불가 
+            if (this.clientService.IsConnected)
+            {
+                send_item.Protocol = "1-0-1";
+                await clientService.SendMessageWithHeaderAsync(this.ExcuteCommand_Send(send_item));
+                DataReceivedEventArgs response101 = await WaitForResponseAsync();
 
-
+            }
         }
         // 서버 연결이 끊어졌을 때 실행되는 메서드
         private void OnDisconnectedFromServer()
@@ -356,8 +370,12 @@ namespace client_supervisor
             // UI 업데이트는 UI 스레드에서 수행되어야 합니다.
             Dispatcher.Invoke(new Action(() =>
             {
-                Console.WriteLine($"MainWindow - Recv Json : {e.JsonData}");
-                Console.WriteLine($"MainWindow - Recv File Data : {e.BinaryData.Length}");
+                // 데이터 수신 시 프로토콜 인스턴스 실행
+                WorkItem item = new WorkItem {Protocol = e.Protocol, JsonData = e.JsonData, BinaryData = e.BinaryData };
+                this.ExcuteCommand_Recv(item);
+
+                _responseTcs.TrySetResult(e);
+                _responseTcs = null;
             }));
         }
 
