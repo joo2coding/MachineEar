@@ -1,8 +1,11 @@
 ﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Reflection;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
@@ -42,21 +45,27 @@ namespace client_supervisor
         private bool isPinModeEnabled { get; set; }
         private double _minScale = 1.0;
 
+        // 이상상황 목록
+        public ObservableCollection<AnomalyLog> List_Daily_Anomaly { get; set; } = new ObservableCollection<AnomalyLog>();
+
         // 지도 목록
         public ObservableCollection<MapSector> MapSectors { get; set; } = new ObservableCollection<MapSector>();
         private int idx_map = 0;
+        List<MapSector> Map_Add = new();
+        List<int> Map_Removed = new();
 
         // 핀 목록
         public ObservableCollection<ClientPin> PinList { get; set; } = new ObservableCollection<ClientPin>();
+        public List<ClientPin> PinList_Modified { get; set; } = new List<ClientPin>();
 
-        // 현재 접속된 클라이언트(마이크) 목록
+        // 등록되지 않은 MAC 주소 목록
         public ObservableCollection<string> MACList { get; set; } = new ObservableCollection<string>();
 
         // 고장 원인 종류
-        public List<string> List_Kind_Error { get; set; } = new List<string>();
+        public Dictionary<int ,string> List_Kind_Error { get; set; } = new Dictionary<int, string>();
 
         // 이상 여부 종류
-        public List<string> List_Kind_Anomaly { get; set; } = new List<string>();
+        public Dictionary<int, string> List_Kind_Anomaly { get; set; } = new Dictionary<int, string>();
 
         public MainWindow()
         {
@@ -65,21 +74,15 @@ namespace client_supervisor
             InitializeTimer();
             this.isPinModeEnabled = false;      // 핀 추가 값 초기화
 
-            this.List_Kind_Anomaly = new List<string>();
-            //this.list_kind_abnormal.Add("과부하");
-            //this.list_kind_abnormal.Add("문제해결");
-            //this.list_kind_abnormal.Add("수리불가");
-            //this.CreateRadioButtons_Click(this.List_Kind_Anomaly);
-
             this.load_serveraddr(this.path_server);
-            this.MapSectors = this.load_maplist(true);      // 도면 불러오기
-
         }
         /*-------------------------------------------------------------------*/
         // 로컬 json 파일 제어
         // maps 폴더에 저장된 메타데이터 불러오기
         private ObservableCollection<MapSector> load_maplist(bool showimage = false)
         {
+            baseImage.Source = null;
+
             // maps 폴더가 루트에 존재하는지 확인
             string path_map = "maps";
             if (!Directory.Exists(path_map))
@@ -103,7 +106,7 @@ namespace client_supervisor
             // 이미지 목록을 불러왔으면, 이미지를 출력
             if (showimage && mapSectors.Count > 0)
             {
-                baseImage.Source = new BitmapImage(new Uri(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps", mapSectors.First().Path), UriKind.Absolute));
+                LoadImageSafely(System.IO.Path.Combine(path_maps, mapSectors.First().Path));
                 this.idx_map = 0;
                 this.FitToViewer();
             }
@@ -141,94 +144,123 @@ namespace client_supervisor
         // 로컬 도면을 메타데이터에 저장
         private void ClickManageMap(object sender, RoutedEventArgs e)
         {
-            var originalMapSectors = new ObservableCollection<MapSector>(this.MapSectors.Select(m => new MapSector
-            {
-                Idx = m.Idx,
-                Name = m.Name,
-                Path = m.Path,
-                SizeB = m.SizeB,
-                Path_Origin = m.Path_Origin // Path_Origin은 원본 비교에 사용될 수 있습니다.
-                                            // 다른 필요한 속성들도 복사
-            }));
-
             Window_Manage_Map window_Manage_Map = new Window_Manage_Map(this.MapSectors);
             if (window_Manage_Map.ShowDialog() == true)
             {
                 // 캡쳐된 MapSectors를 원본 MapSectors로 덮어쓰기
-                this.MapSectors = window_Manage_Map.MapSectors;
+                ObservableCollection<MapSector> MapSectors_recv = window_Manage_Map.MapSectors;
+
                 Console.WriteLine($"변경된 MapSectors : {this.MapSectors.Count}");
 
                 // 1. 삭제된 파일 처리
                 Console.WriteLine($"\n1. 삭제된 파일 처리 시도:");
-                foreach (var item in originalMapSectors)
-                {
-                    Console.WriteLine($"  현재 항목 : {item.Name} ({item.Path})");
-                    // 캡쳐 기준 해당 항목이 없는 경우 삭제
-                    if (!this.MapSectors.Contains(item))
-                    {
-                        string fullPathToDelete = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps", item.Path);
-                        File.Delete(fullPathToDelete);
-                        Console.WriteLine($"  삭제 변동사항 발생, 파일 삭제 시도 : {item.Name} ({fullPathToDelete})");
-                    }
-                }
+                this.Map_Removed = this.compare_maplist_delete(this.MapSectors, MapSectors_recv);
 
                 // 2. 새로 추가된 파일 처리
                 Console.WriteLine($"\n2. 새로 추가된 파일 처리 시도:");
-                foreach (var item in this.MapSectors)
+                this.Map_Add = this.compare_maplist_add(MapSectors_recv, this.MapSectors);
+
+                // 3. 메타 JSON 파일 업데이트 (순서 변경 및 속성 업데이트 포함)
+                this.MapSectors = MapSectors_recv;
+                this.save_maplist(true);
+            }
+
+            this.MapSectors = this.load_maplist(true);      // 도면 목록 다시 불러오기
+        }
+        // 서버로부터 받은 지도 목록 저장
+        public void save_maplist(bool save_path = false)
+        {
+            List<object> list_json = new List<object>();
+
+            foreach (MapSector mapData in this.MapSectors)
+            {
+                Dictionary<string, object> dict_meta = new Dictionary<string, object>();
+                dict_meta.Add("NUM_MAP", mapData.Num_Map);
+                dict_meta.Add("IDX", mapData.Idx);
+                dict_meta.Add("NAME", mapData.Name);
+                dict_meta.Add("PATH", mapData.Path); // 업데이트된 Path를 사용
+
+                string fullPathForSize = "";
+                if (save_path) fullPathForSize = System.IO.Path.Combine(this.path_maps, mapData.Path);
+
+                try
                 {
-                    Console.WriteLine($"  현재 항목 : {item.Name} ({item.Path})");
-                    // 캡쳐 기준 해당 항목이 없는 경우 또는 캡쳐 기준 갯수가 하나도 없는 경우 추가
-                    if (!originalMapSectors.Contains(item))
+                    long file_size = File.Exists(fullPathForSize) ? new FileInfo(fullPathForSize).Length : 0;
+                    dict_meta.Add("SIZE", file_size);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  -> 파일 크기 가져오기 실패: {fullPathForSize} - {ex.Message}");
+                    dict_meta.Add("SIZE", 0); // 실패 시 0 또는 기본값 설정
+                }
+
+                list_json.Add(dict_meta);
+            }
+
+            try
+            {
+                string json = JsonConvert.SerializeObject(list_json, Formatting.Indented); // 가독성을 위해 Indented 옵션 추가
+                File.WriteAllText(this.path_map_meta, json);
+                Console.WriteLine($"  -> 메타 JSON 파일 저장 성공: {this.path_map_meta}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  -> 메타 JSON 파일 저장 실패: {this.path_map_meta} - {ex.Message}");
+            }
+        }
+        // 지도 목록 비교 - 실행 후 삭제
+        public List<int> compare_maplist_delete(ObservableCollection<MapSector> src, ObservableCollection<MapSector> tgt, bool filedelete = true)
+        {
+            List<int> list_remove = new();
+            baseImage.Source = null;
+            System.Threading.Thread.Sleep(50);
+
+            foreach (var item in src)
+            {
+                Console.WriteLine($"  현재 항목 : {item.Name} ({item.Path})");
+                // 캡쳐 기준 해당 항목이 없는 경우 삭제
+                if (!tgt.Contains(item))
+                {
+                    list_remove.Add(item.Num_Map);      // 삭제할 지도 번호를 목록에 추가
+
+                    if (filedelete)
+                    {
+                        string fullPathToDelete = System.IO.Path.Combine(this.path_maps, item.Path);
+                        File.Delete(fullPathToDelete);
+
+                        Console.WriteLine($"  삭제 변동사항 발생, 파일 삭제 시도 : {item.Name} ({fullPathToDelete})");
+                    }
+                }
+            }
+
+            return list_remove;
+        }
+        // 지도 목록 비교 - 실행 후 추가
+        public List<MapSector> compare_maplist_add(ObservableCollection<MapSector> src, ObservableCollection<MapSector> tgt, bool filecopy = true)
+        {
+            List<MapSector> list_add = new();
+
+            foreach (var item in src)
+            {
+                Console.WriteLine($"  현재 항목 : {item.Name} ({item.Path})");
+                // 캡쳐 기준 해당 항목이 없는 경우 또는 캡쳐 기준 갯수가 하나도 없는 경우 추가
+                if (!tgt.Contains(item))
+                {
+                    list_add.Add(item.Copy());          // 추가된 사항에 대해서 리스트에 추가
+                    if (filecopy)
                     {
                         string targetFilePath = System.IO.Path.Combine(this.path_maps, System.IO.Path.GetFileName(item.Path_Origin));
                         if (File.Exists(item.Path_Origin))
                         {
+                            Console.WriteLine($"원본 경로 : {item.Path_Origin}");
                             File.Copy(item.Path_Origin, targetFilePath, true);
+
                         }
                         Console.WriteLine($"  추가 변동사항 발생, 항목 추가 및 파일 복사 시도 : {item.Name} ({targetFilePath})");
                     }
                 }
-
-                // 3. 메타 JSON 파일 업데이트 (순서 변경 및 속성 업데이트 포함)
-                Console.WriteLine($"\n3. 메타 JSON 파일 업데이트 시도:");
-                List<object> list_json = new List<object>();
-
-                foreach (MapSector mapData in this.MapSectors)
-                {
-                    Dictionary<string, object> dict_meta = new Dictionary<string, object>();
-                    dict_meta.Add("IDX", mapData.Idx);
-                    dict_meta.Add("NAME", mapData.Name);
-                    dict_meta.Add("PATH", mapData.Path); // 업데이트된 Path를 사용
-
-                    string fullPathForSize = System.IO.Path.Combine(this.path_maps, mapData.Path);
-
-                    try
-                    {
-                        long file_size = File.Exists(fullPathForSize) ? new FileInfo(fullPathForSize).Length : 0;
-                        dict_meta.Add("SIZE", file_size);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"  -> 파일 크기 가져오기 실패: {fullPathForSize} - {ex.Message}");
-                        dict_meta.Add("SIZE", 0); // 실패 시 0 또는 기본값 설정
-                    }
-
-                    list_json.Add(dict_meta);
-                }
-
-                try
-                {
-                    string json = JsonConvert.SerializeObject(list_json, Formatting.Indented); // 가독성을 위해 Indented 옵션 추가
-                    File.WriteAllText(this.path_map_meta, json);
-                    Console.WriteLine($"  -> 메타 JSON 파일 저장 성공: {this.path_map_meta}");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"  -> 메타 JSON 파일 저장 실패: {this.path_map_meta} - {ex.Message}");
-                }
             }
-
-            this.load_maplist(true);      // 도면 목록 다시 불러오기
+            return list_add;
         }
 
         /*-------------------------------------------------------------------*/
@@ -318,27 +350,59 @@ namespace client_supervisor
         // 서버에 연결되었을 때 실행되는 메서드
         private async Task OnConnectedToServer()
         {
+            Header_Manage_Map.IsEnabled = true;
+            Header_Manage_Pin.IsEnabled = true;
+
             Header_Conn.IsEnabled = false;
             Header_Disconn.IsEnabled = true;
             WorkItem send_item = new();
 
             // 접속 요청 송신 및 수신
             send_item.Protocol = "1-0-0";
-            await clientService.SendMessageWithHeaderAsync(this.ExcuteCommand_Send(send_item));
-            DataReceivedEventArgs response100 = await WaitForResponseAsync();;
+            await this.ExcuteCommand_Send(send_item);
 
             // 연결이 유지될때만 아래 태스크 실행, 연결이 종료되면 수행 불가 
             if (this.clientService.IsConnected)
             {
+                // 고장원인 목록 요청
                 send_item.Protocol = "1-0-1";
-                await clientService.SendMessageWithHeaderAsync(this.ExcuteCommand_Send(send_item));
-                DataReceivedEventArgs response101 = await WaitForResponseAsync();
+                await this.ExcuteCommand_Send(send_item);
 
+                // 이상 상태 처리 목록 요청
+                send_item.Protocol = "1-0-2";
+                await this.ExcuteCommand_Send(send_item);
+
+                // 지도 목록 요청
+                send_item.Protocol = "1-3-0";
+                await this.ExcuteCommand_Send(send_item);
+
+                // 추가해야하는 지도가 있다면 서버에 요청
+                for (int i = 0; i < Map_Add.Count; i++)
+                {
+                    send_item.Protocol = "1-3-3";
+                    send_item.JsonData["NUM_MAP"] = Map_Add[i].Num_Map;
+                    this.ExcuteCommand_Send(send_item);     // 데이터 요청 송신
+                }
+
+                // JSON 객체 초기화
+                send_item.JsonData = new JObject();
+
+                // 저장된 메타데이터 불러오기
+                //this.MapSectors = this.load_maplist(true);
+
+                // 핀 목록 요청
+                send_item.Protocol = "1-1-0";
+                await this.ExcuteCommand_Send(send_item);
             }
         }
         // 서버 연결이 끊어졌을 때 실행되는 메서드
         private void OnDisconnectedFromServer()
         {
+            Header_Manage_Map.IsEnabled = false;
+            Header_Manage_Pin.IsEnabled = false;
+
+            this.DeleteRadioButtonToPanel(wrap_kind_anomaly);
+
             Header_Conn.IsEnabled = true;
             Header_Disconn.IsEnabled = false;
 
@@ -425,6 +489,14 @@ namespace client_supervisor
             newRadioButton.IsEnabled = false;
             parentPanel.Children.Add(newRadioButton); // 패널에 라디오 버튼 추가
         }
+        // 생성된 라디오버튼 삭제
+        private void DeleteRadioButtonToPanel(WrapPanel parentPanel)
+        {
+            if (parentPanel != null)
+            {
+                parentPanel.Children.Clear();
+            }
+        }
         // 라디오 버튼 Checked 이벤트 핸들러
         private void RadioButton_Checked(object sender, RoutedEventArgs e)
         {
@@ -435,13 +507,14 @@ namespace client_supervisor
             }
         }
         // 라디오 버튼 생성
-        private void CreateRadioButtons_Click(List<string> list_name)
+        private void CreateRadioButtons_Click(Dictionary<int, string> dict_name)
         {
             wrap_kind_anomaly.Children.Clear();
 
-            foreach (string name in list_name)
+            foreach (KeyValuePair<int, string> name in dict_name)
             {
-                AddRadioButtonToPanel(wrap_kind_anomaly, name, "Kind_Anomaly");
+                // 1번은 상황 발생, 즉 초기값이라 버튼에 추가하지 않음.
+                if(name.Key > 1) AddRadioButtonToPanel(wrap_kind_anomaly, name.Value, "Kind_Anomaly");
             }
         }
         // 라디오버튼 활성화, 비활성화
@@ -571,25 +644,35 @@ namespace client_supervisor
                     PosY = actualY,
                     MAC = add_Pin.MAC_Selected,
                     Date_Reg = DateTime.Now,
-                    State_Anomaly = 0,
-                    Name_Manager = add_Pin.TextBox_Manager.Text
+                    State_Anomaly = 1,
+                    Name_Manager = add_Pin.TextBox_Manager.Text,
+                    State_Connect = true
                 };
 
-                pin_new.AddHandler(ClientPin.PinClickedEvent, new RoutedEventHandler(ClientPin_PinClicked));    // 이벤트 핸들러 등록, 핀 클릭 시 이벤트 발생
-                pin_new.ChangeColorMode(0); // 기본 모드로 설정
+                // 좌표값 재할당
+                pin_new.PosX -= pin_new.pin_icon.Width / 2;
+                pin_new.PosY -= pin_new.pin_icon.Height / 2;
 
-                Canvas.SetLeft(pin_new, actualX - pin_new.Width / 2);
-                Canvas.SetTop(pin_new, actualY - pin_new.Height / 2);
-
-                mainCanvas.Children.Add(pin_new);
-                this.PinList.Add(pin_new);      // 핀 목록에 추가
+                PinAddToCanvas(pin_new);
 
                 // 핀 추가 종료
-                PinModeButton.IsChecked = false;
+                PinModeButton.IsChecked = false; 
                 this.pin_toggle_click(PinModeButton, null);
 
                 // 서버에 해당 핀 정보 전송
             }
+        }
+
+        private void PinAddToCanvas(ClientPin pin_new, bool add_list = false)
+        {
+            pin_new.AddHandler(ClientPin.PinClickedEvent, new RoutedEventHandler(ClientPin_PinClicked));    // 이벤트 핸들러 등록, 핀 클릭 시 이벤트 발생
+            pin_new.ChangeColorMode(1); // 기본 모드로 설정
+
+            Canvas.SetLeft(pin_new, pin_new.PosX);
+            Canvas.SetTop(pin_new, pin_new.PosY);
+
+            mainCanvas.Children.Add(pin_new);
+            if(add_list) this.PinList.Add(pin_new);      // 핀 목록에 추가
         }
 
         private void pin_toggle_click(object sender, RoutedEventArgs e)
@@ -636,6 +719,13 @@ namespace client_supervisor
             Window_Manage_Pin manage_Pin = new Window_Manage_Pin(this.PinList, this.MapSectors);
             if (manage_Pin.ShowDialog() == true)
             {
+                // 백업본 생성
+                List<ClientPin> backups = new List<ClientPin>();
+                foreach (ClientPin pin in this.PinList)
+                {
+
+                }
+
                 // 기존 핀들 전부 다 삭제
                 this.mainCanvas.Children.Clear();
                 this.PinList = manage_Pin.PinList_Origin;
@@ -643,59 +733,59 @@ namespace client_supervisor
                 // 변경된 목록대로 핀 재배치
                 foreach (ClientPin pin_new in this.PinList)
                 {
-                    pin_new.AddHandler(ClientPin.PinClickedEvent, new RoutedEventHandler(ClientPin_PinClicked));    // 이벤트 핸들러 등록, 핀 클릭 시 이벤트 발생
-                    pin_new.ChangeColorMode(0); // 기본 모드로 설정
-
-                    Canvas.SetLeft(pin_new, pin_new.PosX);
-                    Canvas.SetTop(pin_new, pin_new.PosY);
-
-                    mainCanvas.Children.Add(pin_new);
+                    PinAddToCanvas(pin_new);        // 핀 리스트에는 추가하지않고 캔버스에 추가
                 }
 
-                // 변경사항을 서버에 전송, 전체 목록 전송
+                // 변경사항을 서버에 전송
             }
         }
 
         // 지도 페이지 변경, 변경 시 핀의 보임 여부 설정
         private void pb_map_prev_Click(object sender, RoutedEventArgs e)
         {
-            this.idx_map--;
-            if (this.idx_map < 0)
+            if(this.MapSectors.Count > 0)
             {
-                this.idx_map = this.MapSectors.Count - 1;
-            }
-
-            // 핀 보임 여부 설정
-            foreach (var child in mainCanvas.Children)
-            {
-                if (child is ClientPin pin)
+                this.idx_map--;
+                if (this.idx_map < 0)
                 {
-                    pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Idx ? Visibility.Visible : Visibility.Collapsed;
+                    this.idx_map = this.MapSectors.Count - 1;
                 }
+
+                // 핀 보임 여부 설정
+                foreach (var child in mainCanvas.Children)
+                {
+                    if (child is ClientPin pin)
+                    {
+                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Idx ? Visibility.Visible : Visibility.Collapsed;
+                    }
+                }
+                this.ResetDetailPanel(); // 세부사항 패널 초기화
+                LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[this.idx_map].Path));
+                this.FitToViewer();
             }
-            this.ResetDetailPanel(); // 세부사항 패널 초기화
-            baseImage.Source = new BitmapImage(new Uri(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps", this.MapSectors[this.idx_map].Path), UriKind.Absolute));
-            this.FitToViewer();
         }
         private void pb_map_next_Click(object sender, RoutedEventArgs e)
         {
-            this.idx_map++;     // 지도 목록 인덱스 증가(표시되는 인덱스가 아닌 컬렉션 인덱스)
-            if (this.idx_map > this.MapSectors.Count - 1)
+            if(this.MapSectors.Count > 0)
             {
-                this.idx_map = 0;
-            }
-
-            // 핀 보임 여부 설정
-            foreach (var child in mainCanvas.Children)
-            {
-                if (child is ClientPin pin)
+                this.idx_map++;     // 지도 목록 인덱스 증가(표시되는 인덱스가 아닌 컬렉션 인덱스)
+                if (this.idx_map > this.MapSectors.Count - 1)
                 {
-                    pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Idx ? Visibility.Visible : Visibility.Collapsed;
+                    this.idx_map = 0;
                 }
+
+                // 핀 보임 여부 설정
+                foreach (var child in mainCanvas.Children)
+                {
+                    if (child is ClientPin pin)
+                    {
+                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Idx ? Visibility.Visible : Visibility.Collapsed;
+                    }
+                }
+                this.ResetDetailPanel(); // 세부사항 패널 초기화
+                LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[this.idx_map].Path));
+                this.FitToViewer();
             }
-            this.ResetDetailPanel(); // 세부사항 패널 초기화
-            baseImage.Source = new BitmapImage(new Uri(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps", this.MapSectors[this.idx_map].Path), UriKind.Absolute));
-            this.FitToViewer();
         }
         // 핀 클릭 이벤트 핸들러
         private void ClientPin_PinClicked(object sender, RoutedEventArgs e)
@@ -710,11 +800,49 @@ namespace client_supervisor
                 label_data_map.Content = MapSectors.FirstOrDefault(sector => sector.Idx == clickedPin.MapIndex)?.Name;
                 label_data_loc.Content = clickedPin.Name_Location;
                 label_data_manager.Content = clickedPin.Name_Manager;
-                label_data_state.Content = clickedPin.State_Active ? "활성화" : "비활성화";
-                // label_data_abnormal.Content = this.List_Kind_Anomaly[clickedPin.State_Anomaly];
-                label_data_abnormal.Content = 0;
+                // 해당 클라이언트가 접속하지 않았다면
+                if (!clickedPin.State_Connect)
+                {
+                    label_data_state.Content = "서버와 연결되지 않음.";
+                }
+                else
+                {
+                    label_data_state.Content = clickedPin.State_Active ? "작동 중" : "대기 중";
+                    pb_state_active.Content = clickedPin.State_Active ? "정지" : "작동";
+                    pb_state_active.IsEnabled = true;
 
-                // 이상발생 목록 확인 후 가장 최신 핀 정보로 업데이트, 없으면 초기화
+                    // 이상발생 목록 확인 후 가장 최신 핀 정보로 업데이트, 없으면 초기화
+                    if (clickedPin.State_Anomaly > 0)
+                    {
+                        for (int i = this.List_Daily_Anomaly.Count - 1; i >= 0; i--)
+                        {
+                            if (this.List_Daily_Anomaly[i].Idx_Pin == this.idx_map)
+                            {
+                                AnomalyLog log = this.List_Daily_Anomaly[i];
+
+                                label_start_datetime.Content = log.Time_Start.ToString("F");
+                                label_proc_datetime.Content = log.Time_End.ToString("F");
+                                RadioGroupChangeState();
+                                textbox_proc_manager.Text = log.Worker;
+                                textbox_proc_memo.Text = log.Memo;
+                            }
+                        }
+                    }
+                }
+
+                // 지도 역시 특정 페이지로 전환
+                this.idx_map = clickedPin.MapIndex;
+
+                foreach (var child in mainCanvas.Children)
+                {
+                    if (child is ClientPin pin)
+                    {
+                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Idx ? Visibility.Visible : Visibility.Collapsed;
+                    }
+                }
+                this.ResetDetailPanel(); // 세부사항 패널 초기화
+                this.LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[this.idx_map].Path));
+                this.FitToViewer();
             }
         }
         // 화면 전환 시 세부사항 패널 초기화
@@ -726,15 +854,89 @@ namespace client_supervisor
             label_data_loc.ClearValue(ContentProperty);
             label_data_manager.ClearValue(ContentProperty);
             label_data_state.ClearValue(ContentProperty);
-            label_data_abnormal.ClearValue(ContentProperty);
+            pb_state_active.Content = "";
+            pb_state_active.IsEnabled = false;
         }
         // 상황 패널 초기화
-        private void ResetDetailPanel_Situation()
+        private void ResetDetailPanel_Situation(WrapPanel parentPanel)
         {
             label_start_datetime.ClearValue(ContentProperty);
             label_proc_datetime.ClearValue(ContentProperty);
+            textbox_proc_memo.Text = "";
+            textbox_proc_manager.Text = "";
+            
+            // 모든 라디오버튼 선택 해제
+            foreach(object child in parentPanel.Children)
+            {
+                RadioButton? radioButton = child as RadioButton;
+                radioButton.IsChecked = false;
+            }
         }
 
-        
+        private void pbStateActiveAll_Click(object sender, RoutedEventArgs e)
+        {
+            OnStateActiveAll(true);
+        }
+
+        private void pbStateDectiveAll_Click(object sender, RoutedEventArgs e)
+        {
+            OnStateActiveAll(false);
+        }
+
+        // 전체 동작, 전체 정지 버튼 클릭 시 실행
+        private void OnStateActiveAll(bool active)
+        {
+            WorkItem send_item = new();
+            send_item.Protocol = "1-1-2";
+            send_item.JsonData["STATE_ACTIVE"] = active;
+
+            this.ExcuteCommand_Send(send_item);
+        }
+
+        private void pb_proc_init_Click(object sender, RoutedEventArgs e)
+        {
+            ResetDetailPanel_Situation(wrap_kind_anomaly);
+        }
+        // 이미지 불러오기 메서드
+        public void LoadImageSafely(string relativeImagePath)
+        {
+            string fullImagePath = System.IO.Path.Combine(this.path_maps, relativeImagePath);
+
+            if (!File.Exists(fullImagePath))
+            {
+                Console.WriteLine($"경고: 이미지를 찾을 수 없습니다 - {fullImagePath}");
+                baseImage.Source = null;
+                return;
+            }
+
+            BitmapImage bitmap = new BitmapImage();
+            try
+            {
+                using (FileStream stream = new FileStream(fullImagePath, FileMode.Open, FileAccess.Read))
+                {
+                    bitmap.BeginInit();
+                    bitmap.StreamSource = stream;
+                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.EndInit();
+                    bitmap.Freeze();
+                } 
+
+                baseImage.Source = bitmap;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"이미지 로드 중 오류 발생: {fullImagePath} - {ex.Message}");
+                baseImage.Source = null; // 오류 시 이미지 소스 클리어
+            }
+        }
+        // 개별 작동상태에 대한 상태 전환 요청
+        private void pb_state_active_Click(object sender, RoutedEventArgs e)
+        {
+            // 현재 클릭되어 우측에 표시된 핀에 대하여 라벨로 상태 확인 후 작동, 대기 상태 전환 요청
+
+            // 현재 클릭된 핀 번호 및 STATE_ACTIVE 획득
+            
+
+        }
     }
 }

@@ -14,8 +14,8 @@
             </MenuItem>
 
             <MenuItem Header="Edit">
-                <MenuItem Header="지도 관리" Click="ClickManageMap"/>
-                <MenuItem Header="핀 관리" Click="ClickManagePin"/>
+                <MenuItem x:Name="Header_Manage_Map" Header="지도 관리" Click="ClickManageMap" IsEnabled="False"/>
+                <MenuItem x:Name="Header_Manage_Pin" Header="핀 관리" Click="ClickManagePin" IsEnabled="False"/>
             </MenuItem>
 
             <MenuItem Header="Log">
@@ -58,8 +58,8 @@
 
             <Grid Grid.Row="0" Margin="5,0,0,0" Grid.Column="1">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,5,0">
-                    <Button Content="전체 정지" Click="Click" Margin="0,0,5,0"></Button>
-                    <Button Content="전체 가동" Click="Click" Margin="5,0,0,0"></Button>
+                    <Button x:Name="PbStateDeactiveAll" Content="전체 정지" Margin="0,0,5,0" Click="pbStateDectiveAll_Click"></Button>
+                    <Button x:Name="pbStateactiveAll" Content="전체 가동" Margin="5,0,0,0" Click="pbStateActiveAll_Click"></Button>
                 </StackPanel>
             </Grid>
 
@@ -177,10 +177,7 @@
                                         <RowDefinition Height="*"/>
                                         <RowDefinition Height="*"/>
                                         <RowDefinition Height="*"/>
-                                        <RowDefinition Height="*"/>
                                     </Grid.RowDefinitions>
-
-                                    
 
                                     <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="0" Grid.Column="0">
                                         <Label x:Name="content_data_map"  Content="지도 이름" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
@@ -221,15 +218,18 @@
                                         <Label x:Name="content_data_state"  Content="작동상태" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
                                     </Border>
                                     <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="5" Grid.Column="1">
-                                        <Label x:Name="label_data_state" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="3*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            
+                                            <Label x:Name="label_data_state" Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                            <Button x:Name="pb_state_active" Grid.Column="1" IsEnabled="False" Click="pb_state_active_Click"/>
+                                            
+                                        </Grid>
                                     </Border>
 
-                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0" Grid.Row="6" Grid.Column="0">
-                                        <Label x:Name="content_data_abnormal"  Content="이상여부" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                    <Border BorderBrush="Gray" Grid.Row="6" Grid.Column="1">
-                                        <Label x:Name="label_data_abnormal" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
-                                    </Border>
                                 </Grid>
                             </GroupBox>
                         </Grid>
@@ -295,8 +295,8 @@
                                     </Grid>
 
                                     <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <Button Content="초기화" Width="50" Height="25" Margin="0,0,5,0" IsEnabled="False"/>
-                                        <Button Content="적용" Width="50" Height="25" IsEnabled="False"/>
+                                        <Button x:Name="pb_proc_init" Content="초기화" Width="50" Height="25" Margin="0,0,5,0" IsEnabled="False" Click="pb_proc_init_Click"/>
+                                        <Button x:Name="pb_proc_commit" Content="적용" Width="50" Height="25" IsEnabled="False"/>
                                     </StackPanel>
                                 </Grid>
                             </GroupBox>

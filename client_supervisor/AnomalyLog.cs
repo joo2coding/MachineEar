@@ -16,12 +16,15 @@ namespace client_supervisor
         public string Memo { get; set; } // 설명
         public int Code_Anomaly { get; set; } // 이상 코드
 
-        public AnomalyLog(int idx, int idx_pin, DateTime time_start, string memo)
+        public AnomalyLog(int idx, int idx_pin, string worker, DateTime time_start, DateTime time_end, string memo, int code_anomaly)
         {
             Idx = idx;
             Idx_Pin = idx_pin;
+            Worker = worker;
             Time_Start = time_start;
+            Time_End = time_end;
             Memo = memo;
+            Code_Anomaly = code_anomaly;
         }
     }
 }

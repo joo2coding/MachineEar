@@ -59,6 +59,7 @@ namespace client_supervisor
                 int newIdx = Capture_MapSectors.Count > 0 ? Capture_MapSectors[Capture_MapSectors.Count - 1].Idx + 1 : 1;
                 MapSector newSector = new MapSector
                 {
+                    Num_Map = 0,
                     Idx = newIdx,
                     Name = add_Map.textbox_name.Text,
                     Path_Origin = add_Map.textbox_path.Text,

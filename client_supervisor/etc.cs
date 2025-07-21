@@ -19,6 +19,21 @@ namespace client_supervisor
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
 
+        [JsonProperty("NUM_MAP")]
+        private int _num_map;
+        public int Num_Map
+        {
+            get { return _num_map; }
+            set
+            {
+                if (_num_map != value)
+                {
+                    _num_map = value;
+                    OnPropertyChanged(nameof(Num_Map));
+                }
+            }
+        }
+
         [JsonProperty("INDEX")]
         private int _idx;
         public int Idx
@@ -111,6 +126,21 @@ namespace client_supervisor
         public override int GetHashCode()
         {
             return System.HashCode.Combine(Name, Path, SizeB);
+        }
+
+        public MapSector Copy()
+        {
+            MapSector copy = new();
+
+            copy.Name = this.Name;
+            copy.Num_Map = this.Num_Map;
+            copy.SizeB = this.SizeB;
+            copy.Path = this.Path;
+            copy.Idx = this.Idx;
+            copy.IsSelected = this.IsSelected;
+            copy.Path_Origin = this.Path_Origin;
+
+            return copy;
         }
     }
 

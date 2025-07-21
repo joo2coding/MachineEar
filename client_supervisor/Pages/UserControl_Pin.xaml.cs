@@ -206,6 +206,19 @@ namespace client_supervisor
                 }
             }
         }
+        private bool _state_connect;
+        public bool State_Connect
+        {
+            get { return _state_connect; }
+            set
+            {
+                if (_state_connect != value)
+                {
+                    _state_connect = value;
+                    OnPropertyChanged(nameof(State_Connect));
+                }
+            }
+        }
 
         public ClientPin()
         {
@@ -305,27 +318,57 @@ namespace client_supervisor
             // 이벤트가 다른 상위 요소로 전파되지 않도록 처리
             e.Handled = true;
         }
-    }
 
-    // ClientPin의 equal과 gethashcode가 봉인되어 있어서 비교하는 클래스 생성
-    public class ClientPinComparer : IEqualityComparer<ClientPin>
-    {
-        public bool Equals(ClientPin x, ClientPin y)
+        public ClientPin Copy()
         {
-            if (ReferenceEquals(x, y)) return true;
+            ClientPin copy = new ClientPin();
 
-            if (ReferenceEquals(x, null) || ReferenceEquals(y, null)) return false;
+            copy.Idx = this.Idx;
+            copy.Name_Pin = this.Name_Pin;
+            copy.MapIndex = this.MapIndex;
+            copy.PosX = this.PosX;
+            copy.PosY = this.PosY;
+            copy.MAC = this.MAC;
+            copy.Date_Reg = this.Date_Reg;
+            copy.State_Anomaly = this.State_Anomaly;
+            copy.Name_Manager = this.Name_Manager;
+            copy.Name_Location = this.Name_Location;
+            copy.State_Active = this.State_Active;
+            copy.Mode_Color = this.Mode_Color;
+            copy.IsSelected = this.IsSelected;
+            copy.State_Connect = this.State_Connect;
 
-            return x.Idx == y.Idx &&
-                   string.Equals(x.MAC, y.MAC, System.StringComparison.OrdinalIgnoreCase); // MAC은 대소문자 구분 없이 비교
+            if (this.pin_icon != null && copy.pin_icon != null)
+            {
+                if (this.pin_icon.Stroke != null)
+                    copy.pin_icon.Stroke = this.pin_icon.Stroke.Clone(); // Freezable 객체의 깊은 복사
+                if (this.pin_icon.Fill != null)
+                    copy.pin_icon.Fill = this.pin_icon.Fill.Clone();     // Freezable 객체의 깊은 복사
+            }
+
+            return copy;
         }
 
-        public int GetHashCode(ClientPin obj)
+        // ClientPin의 equal과 gethashcode가 봉인되어 있어서 비교하는 클래스 생성
+        public class ClientPinComparer : IEqualityComparer<ClientPin>
         {
-            // obj가 null일 경우 예외 방지
-            if (obj == null) return 0;
+            public bool Equals(ClientPin x, ClientPin y)
+            {
+                if (ReferenceEquals(x, y)) return true;
 
-            return System.HashCode.Combine(obj.Idx, obj.MAC?.ToLowerInvariant()); // MAC은 소문자로 변환하여 일관된 해시 생성
+                if (ReferenceEquals(x, null) || ReferenceEquals(y, null)) return false;
+
+                return x.Idx == y.Idx &&
+                       string.Equals(x.MAC, y.MAC, System.StringComparison.OrdinalIgnoreCase); // MAC은 대소문자 구분 없이 비교
+            }
+
+            public int GetHashCode(ClientPin obj)
+            {
+                // obj가 null일 경우 예외 방지
+                if (obj == null) return 0;
+
+                return System.HashCode.Combine(obj.Idx, obj.MAC?.ToLowerInvariant()); // MAC은 소문자로 변환하여 일관된 해시 생성
+            }
         }
     }
 }
