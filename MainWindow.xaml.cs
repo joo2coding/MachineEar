@@ -1,17 +1,39 @@
 ﻿using System.IO;
 using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using System.Timers;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
+
 namespace MachineEar_MIC
 {
-    /// <summary>
+    public enum ProtocolName
+    {
+        Connect,        // 0-0-0
+        StatusCheck,    // 0-0-1
+        AudioSend,      // 0-1-0
+        DeviceStatus    // 0-2-0
+    }
+
     /// Interaction logic for MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window
     {
+        private TcpClientService tcpService;
+        private const int AUDIO_SEND_PERIOD_SEC = 5;
+        private System.Timers.Timer wavTimer;
+        private System.Timers.Timer micTimer;
+        private WaveInEvent waveIn;
+        private MemoryStream audioBuffer;
+
+        private WaveInEvent waveIn;
+        private List<float> audioBuffer = new();
+        private DispatcherTimer plotTimer;
+        private int selectedDeviceIndex = 0;
+        private const int SampleRate = 44100;
 
         public MainWindow()
         {
@@ -41,50 +63,30 @@ namespace MachineEar_MIC
             this.iPAddress = JsonConvert.DeserializeObject<IPAddress_Local>(read);
         }
 
-        private string GenerateRandomMac()
+        private void comboDevices_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            Random rand = new Random();
-            byte[] mac = new byte[6];
-            rand.NextBytes(mac);
-            mac[0] = (byte)((mac[0] & 0xFE) | 0x02); // Locally Administered
-            return string.Join(":", mac.Select(b => b.ToString("X2")));
+            selectedDeviceIndex = comboDevices.SelectedIndex;
+            waveIn?.StopRecording();
+            waveIn?.Dispose();
+            audioBuffer.Clear();
+            InitMic(selectedDeviceIndex);
         }
 
-
-        public class TcpClientService : IDisposable
+        private void InitMic(int deviceIndex)
         {
             private Socket _clientSocket;
             private CancellationTokenSource _receiveCts;
             private const int BufferSize = 8192;
 
-            public event EventHandler<string> MessageReceived;
-            public event EventHandler<string> ErrorOccurred;
-            public event EventHandler<bool> ConnectionStatusChanged;
+            plotTimer = new DispatcherTimer();
+            plotTimer.Interval = TimeSpan.FromMilliseconds(50); // 20fps
+            plotTimer.Tick += PlotTimer_Tick;
+            plotTimer.Start();
+        }
 
-
-            public bool IsConnected => _clientSocket != null && _clientSocket.Connected;
-
-            private byte[] _receiveBuffer = new byte[8192]; // 소켓에서 직접 읽어올 임시 버퍼
-            private MemoryStream _currentMessageBuffer = new MemoryStream(); // 현재 메시지를 구성하는 데이터를 축적할 버퍼
-
-            // 메시지 파싱 상태를 나타내는 열거형
-            private enum ReceiveState
-            {
-                WaitingForHeader,
-                WaitingForJsonData,
-                WaitingForFileData
-            }
-
-            private ReceiveState _currentState = ReceiveState.WaitingForHeader; // 현재 수신 상태
-            private int _totalMessageSize = 0; // 헤더에서 읽은 전체 메시지 크기
-            private int _jsonSize = 0;       // 헤더에서 읽은 JSON 데이터 크기
-
-            public TcpClientService()
-            {
-                // 생성자에서는 특별한 초기화 없이 이벤트만 정의
-            }
-
-            public async Task<bool> ConnectAsync(string ipAddress, int port, string macAddress)
+        private void WaveIn_DataAvailable(object sender, WaveInEventArgs e)
+        {
+            for (int i = 0; i < e.BytesRecorded; i += 2)
             {
                 if (IsConnected)
                 {
@@ -145,56 +147,32 @@ namespace MachineEar_MIC
                         // ✅ 여기서 수신 대기 로그 추가
                         Debug.WriteLine("👉 [ReceiveAsync 대기 시작]");
 
-                        int bytesRead = await _clientSocket.ReceiveAsync(
-                            new ArraySegment<byte>(_receiveBuffer),
-                            SocketFlags.None
-                        );
+            // 파형 표시
+            var plotSamples = audioBuffer.Skip(Math.Max(0, audioBuffer.Count - 2000)).ToArray();
+            wpfPlot.Plot.Clear();
+            wpfPlot.Plot.Add.Signal(plotSamples, color: Colors.DodgerBlue);
+            wpfPlot.Plot.Axes.AutoScale();
+            wpfPlot.RenderSize = new System.Windows.Size(800, 300);
 
                         Debug.WriteLine($"✅ [수신 완료] bytesRead={bytesRead}");
 
-                        if (bytesRead == 0)
-                        {
-                            Debug.WriteLine("서버에서 연결을 종료했습니다.");
-                            break;
-                        }
+            // FFT 표시
+            int fftLen = 2048;
+            if (plotSamples.Length < fftLen) return;
+            var fftInput = plotSamples.Skip(plotSamples.Length - fftLen).Take(fftLen).Select(x => new Complex(x, 0)).ToArray();
+            
+            //Fourier.Forward(fftInput, FourierOptions.Matlab);
+            double[] fftMag = fftInput.Take(fftLen / 2).Select(c => c.Magnitude).ToArray();
+            double[] freq = Enumerable.Range(0, fftLen / 2).Select(i => i * SampleRate / (double)fftLen).ToArray();
 
-                        // 받은 데이터를 현재 메시지 버퍼에 추가
-                        _currentMessageBuffer.Write(_receiveBuffer, 0, bytesRead);
-
-                        // 받은 데이터가 있을 때마다 메시지를 파싱 시도
-                        ProcessReceivedData();
-                    }
-                }
-                // ... (기존 예외 처리 로직은 동일)
-                catch (ObjectDisposedException)
-                {
-                    Debug.WriteLine("수신 소켓이 닫혔습니다.");
-                }
-                catch (SocketException ex)
-                {
-                    if (ex.SocketErrorCode == SocketError.ConnectionReset || ex.SocketErrorCode == SocketError.Interrupted)
-                    {
-                        OnErrorOccurred("서버와의 연결이 강제로 끊어졌습니다.");
-                    }
-                    else
-                    {
-                        OnErrorOccurred($"수신 오류: {ex.Message}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    OnErrorOccurred($"예기치 않은 수신 오류: {ex.Message}");
-                }
-                finally
-                {
-                    if (IsConnected)
-                    {
-                        Debug.WriteLine("수신 루프 종료. 연결을 끊습니다.");
-                        Disconnect();
-                    }
-                    _currentMessageBuffer.Dispose(); // MemoryStream 자원 해제
-                }
-            }
+            wpfPlotFFT.Plot.Clear();
+            wpfPlotFFT.Plot.Add.Scatter(freq, fftMag, color: Colors.MediumVioletRed);
+            wpfPlotFFT.Plot.Title("FFT (주파수 스펙트럼)");
+            wpfPlotFFT.Plot.XLabel("Frequency (Hz)");
+            wpfPlotFFT.Plot.YLabel("Magnitude");
+            wpfPlotFFT.Plot.Axes.AutoScale();
+            wpfPlotFFT.RenderSize = new System.Windows.Size(800, 300);
+        }
 
             // 수신부
             private void ProcessReceivedData()
