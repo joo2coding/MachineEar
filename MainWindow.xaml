@@ -5,34 +5,62 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:MachineEar_MIC"
         mc:Ignorable="d"
-        Title="MainWindow" Height="500" Width="400">
+        Title="MainWindow" Height="595" Width="400">
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="0*"/>
             <ColumnDefinition/>
         </Grid.ColumnDefinitions>
-        <Grid Grid.ColumnSpan="2" HorizontalAlignment="Left" Height="99" Margin="78,62,0,0" VerticalAlignment="Top" Width="240">
+
+
+        <Grid HorizontalAlignment="Center" Height="99" Margin="0,62,0,0" VerticalAlignment="Top" Width="264" Grid.Column="1">
             <Label Content="IP" HorizontalAlignment="Left" Height="30" VerticalAlignment="Top" Width="48" HorizontalContentAlignment="Center"/>
             <Label Content="MAC" HorizontalAlignment="Left" Height="30" VerticalAlignment="Bottom" Width="48" HorizontalContentAlignment="Center"/>
             <Label Content="PORT" HorizontalAlignment="Left" Height="30" VerticalAlignment="Center" Width="48" HorizontalContentAlignment="Center"/>
-            <Button x:Name="btn_connect" Content="연결" HorizontalAlignment="Left" Height="88" Margin="175,5,0,0" VerticalAlignment="Top" Width="60" Click="connect_btn_click"/>
+            <Button x:Name="btn_connect" Content="연결" Height="40" Margin="196,3,8,0" VerticalAlignment="Top" Click="connect_btn_click" Width="60">
+                <UIElement.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform/>
+                        <SkewTransform/>
+                        <RotateTransform/>
+                        <TranslateTransform/>
+                    </TransformGroup>
+                </UIElement.RenderTransform>
+            </Button>
+            <Button x:Name="btn_disconnec" Content="해제" HorizontalAlignment="Left" Height="40" Margin="196,49,0,0" VerticalAlignment="Top" Width="60" Click="btn_disconnec_Click"/>
+            <TextBox x:Name="textbox_ip" HorizontalAlignment="Left" Margin="64,3,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120" Height="25" TextChanged="TextBox_TextChanged"/>
+            <TextBox x:Name="textbox_port" HorizontalAlignment="Left" Margin="64,0,0,0" TextWrapping="Wrap" VerticalAlignment="Center" Width="120" Height="25" TextChanged="TextBox_TextChanged_1"/>
+            <TextBox x:Name="textbox_mac" HorizontalAlignment="Left" Margin="64,68,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120" Height="25" IsEnabled="False"/>
         </Grid>
-        <TextBox x:Name="textbox_ip" Grid.ColumnSpan="2" HorizontalAlignment="Left" Margin="128,66,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120" Height="25" TextChanged="TextBox_TextChanged"/>
-        <TextBox Grid.ColumnSpan="2" HorizontalAlignment="Left" Margin="128,99,0,0" TextWrapping="Wrap" Text="TextBox" VerticalAlignment="Top" Width="120" Height="25"/>
-        <TextBox x:Name="textbox_port" Grid.ColumnSpan="2" HorizontalAlignment="Left" Margin="128,99,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120" Height="25" TextChanged="TextBox_TextChanged_1"/>
-        <TextBox x:Name="textbox_mac" Grid.ColumnSpan="2" HorizontalAlignment="Left" Margin="128,131,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="120" Height="25" IsEnabled="False"/>
-        <Label Content="Network Connection" Grid.ColumnSpan="2" HorizontalAlignment="Left" Margin="78,22,0,0" VerticalAlignment="Top"/>
-        <Label Content="Input : Sound Wave" Grid.ColumnSpan="2" HorizontalAlignment="Left" Margin="78,206,0,0" VerticalAlignment="Top"/>
-        <WrapPanel Grid.ColumnSpan="2" HorizontalAlignment="Left" Height="15" Margin="233,212,0,0" VerticalAlignment="Top" Width="90">
-            <RadioButton x:Name="radio_mic" Content="mic" Checked="RadioButton_Checked_1" Width="45"/>
-            <RadioButton x:Name="radio_csv" Content="csv" Checked="RadioButton_Checked" Width="45"/>
+        <Label Content="Network Connection" Grid.ColumnSpan="2" HorizontalAlignment="Left" Margin="40,35,0,0" VerticalAlignment="Top"/>
+        <Label Content="Input : Sound Wave" Grid.ColumnSpan="2" HorizontalAlignment="Left" Margin="72,171,0,0" VerticalAlignment="Top"/>
+        <WrapPanel Grid.ColumnSpan="2" HorizontalAlignment="Left" Height="15" Margin="232,178,0,0" VerticalAlignment="Top" Width="111">
+            <RadioButton x:Name="radio_mic" Content="mic" Checked="radio_mic_Checked" Width="45" Margin="0,0,6,0"/>
+            <RadioButton x:Name="radio_csv" Content="wav" Checked="radio_csv_Checked" Width="45"/>
         </WrapPanel>
-        <WrapPanel HorizontalAlignment="Left" Height="30" Margin="70,255,0,0" VerticalAlignment="Top" Width="260" Grid.Column="1">
+        <WrapPanel HorizontalAlignment="Center" Height="30" VerticalAlignment="Top" Width="260" Grid.Column="1" Margin="0,200,0,0">
             <Label Content="MIC ID" HorizontalAlignment="Left" Height="30" VerticalAlignment="Bottom" Width="50" HorizontalContentAlignment="Center" RenderTransformOrigin="0.104,1.133"/>
-            <ComboBox HorizontalAlignment="Left" Height="26" VerticalAlignment="Top" Width="130" Margin="0,0,5,0"/>
-            <Button x:Name="btn_browse" Content="불러오기" HorizontalAlignment="Center" Height="26" VerticalAlignment="Top" Width="75" Click="btn_mac_connect_Click"/>
+            <ComboBox x:Name="ComboBox_mic" HorizontalAlignment="Left" Height="26" VerticalAlignment="Top" Width="130" Margin="0,0,5,0"/>
+            <Button x:Name="btn_browse" Content="불러오기" HorizontalAlignment="Center" Height="26" VerticalAlignment="Top" Width="75" Click="btn_mac_connect_Click" IsEnabled="False"/>
         </WrapPanel>
-        <Canvas x:Name="canvas_waveform" Width="362" Height="158" Margin="17,305,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" Grid.ColumnSpan="2"/>
+        <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Center" Height="28" VerticalAlignment="Top" Width="380" Grid.Column="1" Margin="0,340,0,0">
+            <Label Content="mic level" HorizontalAlignment="Left" Height="24" Margin="4,0,0,0" VerticalAlignment="Center" Width="58"/>
+        </Border>
+        <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Center" Height="192" VerticalAlignment="Top" Width="380" Grid.Column="1" Margin="0,368,0,0"/>
+        <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Center" Height="57" VerticalAlignment="Top" Width="380" Grid.Column="1" Margin="0,274,0,0"/>
+        <Canvas x:Name="canvas_waveform" Width="362" Height="170" Margin="0,379,0,0" HorizontalAlignment="Center" VerticalAlignment="Top" Grid.Column="1"/>
+        <Border BorderBrush="Black" BorderThickness="1" HorizontalAlignment="Center" Height="28" VerticalAlignment="Top" Width="380" Grid.Column="1" Margin="0,246,0,0">
+            <Label Content="peak" HorizontalAlignment="Left" Height="25" Margin="4,-1,0,0" VerticalAlignment="Top" Width="51"/>
+        </Border>
+        <StackPanel Grid.ColumnSpan="2" HorizontalAlignment="Left" Height="31" Margin="257,3,0,0" VerticalAlignment="Top" Width="116" Orientation="Horizontal">
+
+
+            <Label Content="서버 접속 상태" Height="26" Width="93"/>
+            <Ellipse
+
+
+        Width="16" StrokeThickness="1" Stroke="Black" x:Name="ellipse_status" Height="15" Fill="Gray" RenderTransformOrigin="1.533,-1.864" />
+        </StackPanel>
 
     </Grid>
 </Window>
