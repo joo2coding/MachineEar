@@ -148,7 +148,7 @@ namespace client_supervisor
                 JObject obj = new JObject();
                 obj.Add("NUM_MAP", map.Num_Map);
                 obj.Add("INDEX_MAP", map.Idx);
-                obj.Add("NAME_MAP", map.Name);
+                obj.Add("NAME_MAP", map.Name_Map);
                 // 필요하다면 다른 추가 속성도 여기에 포함합니다. (예: Path_Origin, SizeB 등)
                 // obj.Add("PATH_ORIGIN", map.Path_Origin);
                 // obj.Add("SIZE", map.SizeB);
@@ -157,17 +157,15 @@ namespace client_supervisor
             send_item.JsonData["ADD"] = JArray.FromObject(addedMaps); // 추가된 맵은 "ADD" 키로 전송
 
             // 2. 수정된 맵 정보 처리 (MODIFIED)
-            // this.Map_Modified 리스트는 ObservableCollection<MapSector> 타입이라고 가정합니다.
             List<JObject> modifiedMaps = new List<JObject>();
             foreach (MapSector map in this.Map_Modified)
             {
                 JObject obj = new JObject();
                 obj.Add("NUM_MAP", map.Num_Map);
                 obj.Add("INDEX_MAP", map.Idx);
-                obj.Add("NAME_MAP", map.Name);
+                obj.Add("NAME_MAP", map.Name_Map);
                 // 수정된 맵은 변경된 모든 속성을 포함해야 합니다.
                 // 예를 들어, 이름이나 경로, 크기 등이 변경될 수 있으므로 모든 관련 속성을 포함합니다.
-                obj.Add("PATH_ORIGIN", map.Path_Origin);
                 obj.Add("SIZE", map.SizeB);
                 // ... 필요한 다른 속성들 추가
                 modifiedMaps.Add(obj);
@@ -359,7 +357,7 @@ namespace client_supervisor
                 {
                     Num_Map = obj_map["NUM_MAP"].Value<int>(),
                     Idx = obj_map["INDEX_MAP"].Value<int>(),
-                    Name = obj_map["NAME_MAP"].Value<string>(),
+                    Name_Map = obj_map["NAME_MAP"].Value<string>(),
                     SizeB = obj_map["SIZE"].Value<int>()
                 };
 
@@ -385,7 +383,7 @@ namespace client_supervisor
             MapSector map_new = new();
             map_new.Num_Map = item.JsonData["NUM_MAP"].Value<int>();
             map_new.Idx = item.JsonData["INDEX_MAP"].Value<int>();
-            map_new.Name = item.JsonData["NAME_MAP"].Value<string>();
+            map_new.Name_Map = item.JsonData["NAME_MAP"].Value<string>();
             map_new.Path = System.IO.Path.Combine(this.path_maps, item.JsonData["__META__"]["NAME"].Value<string>());
             map_new.SizeB = item.JsonData["__META__"]["SIZE"].Value<int>();
 
@@ -403,7 +401,7 @@ namespace client_supervisor
                 }
             }
 
-            this.save_maplist(true);
+            this.save_maplist();
         }
     }
 }

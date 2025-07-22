@@ -34,10 +34,9 @@ namespace client_supervisor
                 mapSectors.Select(m => new MapSector
                 {
                     Idx = m.Idx,
-                    Name = m.Name,
+                    Name_Map = m.Name_Map,
                     Path = m.Path,
                     SizeB = m.SizeB,
-                    Path_Origin = m.Path_Origin,
                     UpCommand = new RelayCommand(OnUpCommandExecuted),
                     DownCommand = new RelayCommand(OnDownCommandExecuted),
                     IsSelected = false
@@ -53,21 +52,18 @@ namespace client_supervisor
             Window_Add_Map add_Map = new Window_Add_Map();
             if (add_Map.ShowDialog() == true)
             {
-                string path_file = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps", System.IO.Path.GetFileName(add_Map.textbox_path.Text));
-
                 // 데이터그리드에 행 추가
                 int newIdx = Capture_MapSectors.Count > 0 ? Capture_MapSectors[Capture_MapSectors.Count - 1].Idx + 1 : 1;
                 MapSector newSector = new MapSector
                 {
                     Idx = newIdx,
-                    Name = add_Map.textbox_name.Text,
+                    Name_Map = add_Map.textbox_name.Text,
                     Path_Origin = add_Map.textbox_path.Text,
-                    Path = path_file,
                     UpCommand = new RelayCommand(OnUpCommandExecuted),
                     DownCommand = new RelayCommand(OnDownCommandExecuted),
                     IsSelected = false
                 };
-                long file_size = File.Exists(newSector.Path_Origin) ? new FileInfo(newSector.Path_Origin).Length : 0;
+                long file_size = File.Exists(newSector.Path) ? new FileInfo(newSector.Path).Length : 0;
                 newSector.SizeB = (int)file_size;
 
                 Capture_MapSectors.Add(newSector);

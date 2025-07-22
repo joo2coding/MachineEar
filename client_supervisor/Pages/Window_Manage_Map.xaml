@@ -62,7 +62,7 @@
                     </DataGridTextColumn.HeaderStyle>
                 </DataGridTextColumn>
 
-                <DataGridTextColumn Header="이름" Binding="{Binding Name}" Width="*" IsReadOnly="False">
+                <DataGridTextColumn Header="이름" Binding="{Binding Name_Map}" Width="*" IsReadOnly="False">
                     <DataGridTextColumn.HeaderStyle>
                         <Style TargetType="{x:Type DataGridColumnHeader}">
                             <Setter Property="HorizontalContentAlignment" Value="Center"/>

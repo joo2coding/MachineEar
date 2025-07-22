@@ -33,6 +33,7 @@ namespace client_supervisor
         string path_server = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "server_address.json");
         string path_maps = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps");
         string path_map_meta = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps/meta_maps.json");
+        string path_map_path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps/path_maps.json");
 
         private DispatcherTimer? timer_curr;
         private TcpClientService clientService;
@@ -77,44 +78,13 @@ namespace client_supervisor
             this.isPinModeEnabled = false;      // 핀 추가 값 초기화
 
             this.load_serveraddr(this.path_server);
+
+            //Header_Manage_Map.IsEnabled = true;
+            //this.MapSectors = this.load_maplist(true);      // 지도 목록 불러오기
         }
         /*-------------------------------------------------------------------*/
         // 로컬 json 파일 제어
-        // maps 폴더에 저장된 메타데이터 불러오기
-        private ObservableCollection<MapSector> load_maplist(bool showimage = false)
-        {
-            baseImage.Source = null;
-
-            // maps 폴더가 루트에 존재하는지 확인
-            string path_map = "maps";
-            if (!Directory.Exists(path_map))
-            {
-                Directory.CreateDirectory(path_map);
-            }
-
-            // map의 메타파일이 존재하는지 확인
-            if (!File.Exists(this.path_map_meta))
-            {
-                File.WriteAllText(this.path_map_meta, "[]");     // 기본 객체 생성 후 파일 저장
-            }
-
-            string read_string = File.ReadAllText(this.path_map_meta);
-            ObservableCollection<MapSector> mapSectors = new ObservableCollection<MapSector>();
-            mapSectors = JsonConvert.DeserializeObject<ObservableCollection<MapSector>>(read_string);     // 문자열을 json으로 변환
-
-            Window_Manage_Map manage_Map = new Window_Manage_Map(mapSectors);       // 화면 출력을 하지 않음
-            manage_Map.conn_event();        // 파일에서 불러온 목록들에 대하여 이벤트 연결
-
-            // 이미지 목록을 불러왔으면, 이미지를 출력
-            if (showimage && mapSectors.Count > 0)
-            {
-                LoadImageSafely(System.IO.Path.Combine(path_maps, mapSectors.First().Path));
-                this.idx_map = 0;
-                this.FitToViewer();
-            }
-
-            return mapSectors;
-        }
+        
         // 서버 주소 파일 불러오기
         private void load_serveraddr(string path_meta)
         {
@@ -168,7 +138,7 @@ namespace client_supervisor
                     {
                         // correspondingMapInRecv가 null이면, originalMap은 최신 목록에 없습니다. (삭제됨)
                         this.Map_Removed.Add(originalMap.Idx);
-                        Console.WriteLine($"  [삭제 감지] Idx: {originalMap.Idx}, Name: {originalMap.Name}");
+                        Console.WriteLine($"  [삭제 감지] Idx: {originalMap.Idx}, Name: {originalMap.Name_Map}");
                     }
                     else
                     {
@@ -176,23 +146,16 @@ namespace client_supervisor
                         if (!_comparer.AreContentsEqual(originalMap, correspondingMapInRecv))
                         {
                             this.Map_Modified.Add(correspondingMapInRecv); // 최신 수정된 맵 추가
-                            Console.WriteLine($"  [수정 감지] Idx: {originalMap.Idx}, Original Name: {originalMap.Name}, New Name: {correspondingMapInRecv.Name}");
+                            Console.WriteLine($"  [수정 감지] Idx: {originalMap.Idx}, Original Name: {originalMap.Name_Map}, New Name: {correspondingMapInRecv.Name_Map}");
                         }
                     }
                 }
 
                 // 2. 새로 추가된 파일 처리
                 Console.WriteLine($"\n2. 새로 추가된 파일 처리 시도:");
-                foreach (MapSector newMap in MapSectors_recv)
-                {
-                    // 기존 this.MapSectors에 newMap과 동일한 식별자를 가진 맵이 없는 경우 (추가됨)
-                    if (!this.MapSectors.Contains(newMap, _comparer))
-                    {
-                        this.Map_Add.Add(newMap);
-                        Console.WriteLine($"  [추가 감지] Idx: {newMap.Idx}, Name: {newMap.Name}");
-                    }
-                }
+                this.Map_Add = compare_maplist_add(this.MapSectors, MapSectors_recv); // 새로 추가된 맵 목록을 가져옴, NUM_MAP이 없음, 0으로 처리되어있음
 
+                // 지도 목록 수정 요청
                 item.Protocol = "1-3-1";
                 await this.ExcuteCommand_Send(item);
 
@@ -204,20 +167,21 @@ namespace client_supervisor
                 {
                     item.Protocol = "1-3-2";
                     item.JsonData["INDEX_MAP"] = map_add.Idx;
-                    item.JsonData["NAME_MAP"] = map_add.Name;
+                    item.JsonData["NAME_MAP"] = map_add.Name_Map;
+
 
                     JObject obj = new JObject();
-                    obj["NAME"] = System.IO.Path.GetFileName(map_add.Path_Origin);
+                    obj["NAME"] = System.IO.Path.GetFileName(map_add.Path);
                     obj["SIZE"] = map_add.SizeB;
 
                     item.JsonData["__META__"] = obj;
-                    item.BinaryData = File.ReadAllBytes(map_add.Path_Origin);
+                    item.BinaryData = File.ReadAllBytes(map_add.Path);
 
                     await this.ExcuteCommand_Send(item);
                 }
 
                 // 파일 저장
-                this.save_maplist(true);
+                this.save_maplist();
 
                 // 지도 목록 다시 요청
                 item.JsonData = new JObject();
@@ -229,106 +193,7 @@ namespace client_supervisor
 
             this.MapSectors = this.load_maplist(true);      // 도면 목록 다시 불러오기
         }
-        // 서버로부터 받은 지도 목록 저장
-        public void save_maplist(bool save_path = false)
-        {
-            List<object> list_json = new List<object>();
-
-            foreach (MapSector mapData in this.MapSectors)
-            {
-                Dictionary<string, object> dict_meta = new Dictionary<string, object>();
-                dict_meta.Add("NUM_MAP", mapData.Num_Map);
-                dict_meta.Add("IDX", mapData.Idx);
-                dict_meta.Add("NAME", mapData.Name);
-                dict_meta.Add("PATH", mapData.Path); // 파일 경로는 이름따라가기에 여기서 생성
-
-                string fullPathForSize = "";
-                if (save_path) fullPathForSize = mapData.Path;
-
-                try
-                {
-                    long file_size = File.Exists(fullPathForSize) ? new FileInfo(fullPathForSize).Length : 0;
-                    dict_meta.Add("SIZE", file_size);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"  -> 파일 크기 가져오기 실패: {fullPathForSize} - {ex.Message}");
-                    dict_meta.Add("SIZE", 0); // 실패 시 0 또는 기본값 설정
-                }
-
-                list_json.Add(dict_meta);
-            }
-
-            try
-            {
-                string json = JsonConvert.SerializeObject(list_json, Formatting.Indented); // 가독성을 위해 Indented 옵션 추가
-                File.WriteAllText(this.path_map_meta, json);
-                Console.WriteLine($"  -> 메타 JSON 파일 저장 성공: {this.path_map_meta}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"  -> 메타 JSON 파일 저장 실패: {this.path_map_meta} - {ex.Message}");
-            }
-        }
-        // 지도 목록 비교 - 실행 후 삭제
-        public List<int> compare_maplist_delete(ObservableCollection<MapSector> src, ObservableCollection<MapSector> tgt, bool filedelete = true)
-        {
-            Console.WriteLine("지도 동기화 시작 - 삭제");
-            List<int> list_remove = new();
-            baseImage.Source = null;
-            System.Threading.Thread.Sleep(50);
-
-            foreach (var item in src)
-            {
-                //Console.WriteLine($"  현재 항목 : {item.Name} ({item.Path})");
-                // 캡쳐 기준 해당 항목이 없는 경우 삭제
-                if (!tgt.Contains(item))
-                {
-                    list_remove.Add(item.Num_Map);      // 삭제할 지도 번호를 목록에 추가
-                    Console.WriteLine($"삭제 핀 번호 : {item.Idx}");
-
-                    if (filedelete)
-                    {
-                        string fullPathToDelete = System.IO.Path.Combine(this.path_maps, item.Path);
-                        File.Delete(fullPathToDelete);
-
-                        Console.WriteLine($"  삭제 변동사항 발생, 파일 삭제 시도 : {item.Name} ({fullPathToDelete})");
-                    }
-                }
-            }
-
-            return list_remove;
-        }
-        // 지도 목록 비교 - 실행 후 추가
-        public List<MapSector> compare_maplist_add(ObservableCollection<MapSector> src, ObservableCollection<MapSector> tgt, bool filecopy = true)
-        {
-            Console.WriteLine("지도 동기화 시작 - 추가");
-            List<MapSector> list_add = new();
-
-            foreach (var item in tgt)
-            {
-                //Console.WriteLine($"현재 항목 : {item.Name} ({item.Path})");
-                // 캡쳐 기준 해당 항목이 없는 경우 또는 캡쳐 기준 갯수가 하나도 없는 경우 추가
-                if (!src.Contains(item))
-                {
-                    list_add.Add(item.Copy());          // 추가된 사항에 대해서 리스트에 추가
-                    Console.WriteLine($"추가 핀 번호 : {item.Idx}");
-                    if (filecopy)
-                    {
-                        string targetFilePath = System.IO.Path.Combine(this.path_maps, System.IO.Path.GetFileName(item.Path_Origin));
-                        if (File.Exists(item.Path_Origin))
-                        {
-                            Console.WriteLine($"원본 경로 : {item.Path_Origin}");
-                            File.Copy(item.Path_Origin, targetFilePath, true);
-
-                        }
-                        Console.WriteLine($"  추가 변동사항 발생, 항목 추가 및 파일 복사 시도 : {item.Name} ({targetFilePath})");
-                    }
-                }
-            }
-            return list_add;
-        }
-
+       
         /*-------------------------------------------------------------------*/
         // 시간 확인 타이머 설정
         private void InitializeTimer()          // 타이머 초기화하는 메서드 
@@ -909,7 +774,7 @@ namespace client_supervisor
                 // 핀 클릭 시 세부사항 패널 활성화
                 label_data_pin.Content = clickedPin.Idx;
                 label_data_name.Content = clickedPin.Name_Pin;
-                label_data_map.Content = MapSectors.FirstOrDefault(sector => sector.Idx == clickedPin.MapIndex)?.Name;
+                label_data_map.Content = MapSectors.FirstOrDefault(sector => sector.Idx == clickedPin.MapIndex)?.Name_Map;
                 label_data_loc.Content = clickedPin.Name_Location;
                 label_data_manager.Content = clickedPin.Name_Manager;
 

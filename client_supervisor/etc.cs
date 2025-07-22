@@ -50,16 +50,16 @@ namespace client_supervisor
         }
 
         [JsonProperty("NAME")]
-        private string _name;
-        public string Name
+        private string _name_map;
+        public string Name_Map
         {
-            get { return _name; }
+            get { return _name_map; }
             set
             {
-                if (_name != value)
+                if (_name_map != value)
                 {
-                    _name = value;
-                    OnPropertyChanged(nameof(Name));
+                    _name_map = value;
+                    OnPropertyChanged(nameof(Name_Map));
                 }
             }
         }
@@ -72,7 +72,6 @@ namespace client_supervisor
 
         [JsonIgnore]
         public string Path_Origin { get; set; }
-
         [JsonIgnore]
         public ICommand UpCommand { get; set; }
         [JsonIgnore]
@@ -130,13 +129,12 @@ namespace client_supervisor
         {
             MapSector copy = new();
 
-            copy.Name = this.Name;
+            copy.Name_Map = this.Name_Map;
             copy.Num_Map = this.Num_Map;
             copy.SizeB = this.SizeB;
             copy.Path = this.Path;
             copy.Idx = this.Idx;
             copy.IsSelected = this.IsSelected;
-            copy.Path_Origin = this.Path_Origin;
 
             return copy;
         }
@@ -167,8 +165,7 @@ namespace client_supervisor
 
             // MapSector.Equals에서 비교하는 모든 속성들을 여기에 추가
             return x.Idx == y.Idx &&
-                   string.Equals(x.Name, y.Name, StringComparison.Ordinal) &&
-                   string.Equals(x.Path_Origin, y.Path_Origin, StringComparison.Ordinal) &&
+                   string.Equals(x.Name_Map, y.Name_Map, StringComparison.Ordinal) &&
                    x.SizeB == y.SizeB;
         }
     }

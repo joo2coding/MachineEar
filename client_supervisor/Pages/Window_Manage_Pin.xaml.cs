@@ -66,7 +66,7 @@ namespace client_supervisor
                     Name_Manager = m.Name_Manager,
                     Mode_Color = m.Mode_Color,
                     IsSelected = false,
-                    Name_Map = MapSectors.FirstOrDefault(sector => sector.Idx == m.MapIndex)?.Name
+                    Name_Map = MapSectors.FirstOrDefault(sector => sector.Idx == m.MapIndex)?.Name_Map
                 })
             );
 
