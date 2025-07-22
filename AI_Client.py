@@ -46,14 +46,14 @@ def chk_receive_data(sock, bytes_):
 
     buf = b'' # 바이너리로 읽음
     while len(buf) < bytes_: # 서버에게 받은 총 데이터 길이만큼 읽을 때까지 반복
-        print('아직 데이터 다 안왔음')
+        # print('아직 데이터 다 안왔음')
         chunk = sock.recv(bytes_ - len(buf))
-        print('1')
+        # print('1')
         if not chunk: # 연결이 끊어진 경우
             raise ConnectionError('서버와 연결이 끊어졌습니다!')
-        print('2')
+        # print('2')
         buf += chunk # 데이터를 다 더함
-        print('3')
+        # print('3')
     return buf
 
 # 서버에게 받은 데이터 파싱 함수
@@ -62,14 +62,14 @@ def receive_data(sock):
     try:
         # header 8바이트 수신하기
         header = chk_receive_data(sock, 8)  # 앞에서 8바이트 읽어서 저장 ---> header(4+4)
-        print(f'header : {header}')
+        # print(f'header : {header}')
         total_len, json_len = struct.unpack('>II', header)  # 4바이트씩 뜯어서 ---> 전체 길이 / json 길이 저장
         print(f'총 데이터 길이(total_len) : {total_len}')
         print(f'json 길이(json_len)      : {json_len}')
 
         # header 뒤 실제 데이터 수신하기
         body = chk_receive_data(sock, total_len)
-        print(f'body : {body}')
+        # print(f'body : {body}')
         # json과 data 각각 저장하기
         json_ = body[:json_len].decode("utf-8")
         if total_len > json_len: # 데이터가 있는 경우
@@ -78,8 +78,8 @@ def receive_data(sock):
             data_ = None
 
         print(f'json_data : {json_}')
-        if data_ is not None:
-            print(f'data : {data_}')
+        # if data_ is not None:
+            # print(f'data : {data_}')
 
         return json_, data_
 
@@ -144,38 +144,44 @@ def proc_2_0_0(sock, conn_switch):
 
 # 오디오 수신 함수
 def proc_2_1_0(sock, json_obj, data_):
+    print('오디오 수신해요')
     fail_switch = 0
-    if (not 'MAC' in json_obj) or (not '__META__' in json_obj):
+    if (not 'NUM_PIN' in json_obj) or (not '__META__' in json_obj):
+        print('1')
         fail_switch = 1
     if '__META__' in json_obj:
         META = json_obj['__META__']
-        if (not 'SIZE' in META) or (not 'SAMPLING_RATE' in META) or (not 'TIME' in META):
+        print('2')
+        if (not 'SIZE' in META) or (not 'SAMPLING_RATE' in META) or (not 'SIZE' in META) or (not 'SOURCE' in META) or (not 'TIME' in META):
+            print('3')
             fail_switch = 1
     if len(data_) == 0:
+        print('4')
         fail_switch = 1
 
     if fail_switch == 0:  # 데이터를 정상적으로 수신한 경우
         res_json = {'RESPONSE': 'OK'}
         send_data(sock, res_json)
-        MAC = json_obj['MAC']
+        NUM_PIN = json_obj['NUM_PIN']
         SIZE = json_obj['__META__']['SIZE']
         SR = json_obj['__META__']['SAMPLING_RATE']
         TIME = json_obj['__META__']['TIME']
+        SOURCE = json_obj['__META__']['SOURCE']
+        FILE_PATH = json_obj['FILE_PATH']
 
         # 서버에서 받은 data_: bytes (WAV 파일) ---> 저장해야함.
-        with open("recv.wav", "wb") as f:
+        filename = 'recv.' + SOURCE.lower()
+        print(f'filename : {filename}')
+        with open(filename, "wb") as f:
             f.write(data_)
 
         # 오디오 데이터 예측해서 서버에게 예측 결과 송신
-        pred_ = pred_audio(SR, TIME)
+        pred_ = pred_audio(SR, TIME, model)
         class_, result_ = pred_.split()
 
-        result_json = {"PROTOCOL": "2-2-0", "NUM_PIN": MAC, "CLASS": CLASS.index(class_), "RESULT": result_.upper()}
+        result_json = {"PROTOCOL": "2-2-0", "NUM_PIN": NUM_PIN, "CLASS": CLASS.index(class_), "RESULT": result_.upper(), "FILE_PATH" : FILE_PATH}
+        # result_json = {"PROTOCOL": "2-2-0", "NUM_PIN": NUM_PIN, "CLASS": CLASS.index(class_), "RESULT": "NORMAL", "FILE_PATH" : FILE_PATH}
         send_data(sock, result_json)  # 예측 결과 보내기
-
-    # else:
-    #     res_json = {'RESPONSE': 'NO'}
-    #     send_data(sock, res_json)
 
 # 서버가 예측 결과 받았는지 확인하는 함수
 def proc_2_2_0(json_obj):
@@ -199,16 +205,13 @@ def main():
             # 접속 요청하기
             if conn_switch == 0:
                 conn_switch = proc_2_0_0(client_socket, conn_switch)
-            # send_data(client_socket, {'PROTOCOL': '2-1-0'}) # 이것은 테스트용임 ---> 나중에 삭제
+                
             json_, data_ = receive_data(client_socket)
-            json_obj = json.loads(json_)
+            json_obj = json.loads(json_) # json 문자열 --> json으로 변환
             protocol = json_obj['PROTOCOL']
             # 오디오 데이터 수신하기
             if protocol == '2-1-0':
                 proc_2_1_0(client_socket, json_obj, data_)
-            # 오디오 데이터 예측 결과 송신하고 받은 메시지
-            # elif protocol == '2-2-0':
-            #     proc_2_2_0(json_obj)
 
     except KeyboardInterrupt:
         print('\n사용자 중단')
