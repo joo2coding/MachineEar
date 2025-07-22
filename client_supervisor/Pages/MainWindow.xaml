@@ -19,7 +19,7 @@
             </MenuItem>
 
             <MenuItem Header="Log">
-                <MenuItem Header="이전 기록" Click="Click"/>
+                <MenuItem x:Name="Header_Log" Header="이전 기록" Click="pb_log_Click"/>
             </MenuItem>
 
             <MenuItem Header="Network">

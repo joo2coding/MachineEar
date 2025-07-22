@@ -1,5 +1,6 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
@@ -36,8 +37,6 @@ namespace client_supervisor
         private DispatcherTimer? timer_curr;
         private TcpClientService clientService;
         private IPAddress_Local iPAddress;
-        private TaskCompletionSource<DataReceivedEventArgs> _responseTcs;
-        private readonly object _responseTcsLock = new object(); // _responseTcs 접근을 위한 락 객체
 
         /*-------------------------------------------------------------------*/
         // 각종 변수 선언
@@ -53,10 +52,13 @@ namespace client_supervisor
         private int idx_map = 0;
         List<MapSector> Map_Add = new();
         List<int> Map_Removed = new();
+        List<MapSector> Map_Modified = new();
 
         // 핀 목록
         public ObservableCollection<ClientPin> PinList { get; set; } = new ObservableCollection<ClientPin>();
         public List<ClientPin> PinList_Modified { get; set; } = new List<ClientPin>();
+        public List<ClientPin> PinList_Add { get; set; } = new List<ClientPin>();
+        public List<int> PinList_Remove { get; set; } = new List<int>();
 
         // 등록되지 않은 MAC 주소 목록
         public ObservableCollection<string> MACList { get; set; } = new ObservableCollection<string>();
@@ -142,27 +144,87 @@ namespace client_supervisor
             File.WriteAllText(this.path_server, json);
         }
         // 로컬 도면을 메타데이터에 저장
-        private void ClickManageMap(object sender, RoutedEventArgs e)
+        private async void ClickManageMap(object sender, RoutedEventArgs e)
         {
+            this.Map_Removed.Clear();   // 삭제된 맵의 Idx를 저장
+            this.Map_Add.Clear();       // 새로 추가된 맵 객체를 저장
+            this.Map_Modified.Clear();  // 수정된 맵 객체를 저장
+            MapSectorComparer _comparer = new MapSectorComparer();
+            WorkItem item = new WorkItem();
+
             Window_Manage_Map window_Manage_Map = new Window_Manage_Map(this.MapSectors);
             if (window_Manage_Map.ShowDialog() == true)
             {
                 // 캡쳐된 MapSectors를 원본 MapSectors로 덮어쓰기
                 ObservableCollection<MapSector> MapSectors_recv = window_Manage_Map.MapSectors;
+                HashSet<MapSector> mapRecvHashSet = new HashSet<MapSector>(MapSectors_recv, _comparer);
 
-                Console.WriteLine($"변경된 MapSectors : {this.MapSectors.Count}");
+                // 수정 및 삭제
+                foreach (MapSector originalMap in this.MapSectors)
+                {
+                    MapSector correspondingMapInRecv = mapRecvHashSet.FirstOrDefault(m => _comparer.Equals(m, originalMap));
 
-                // 1. 삭제된 파일 처리
-                Console.WriteLine($"\n1. 삭제된 파일 처리 시도:");
-                this.Map_Removed = this.compare_maplist_delete(this.MapSectors, MapSectors_recv);
+                    if (correspondingMapInRecv == null)
+                    {
+                        // correspondingMapInRecv가 null이면, originalMap은 최신 목록에 없습니다. (삭제됨)
+                        this.Map_Removed.Add(originalMap.Idx);
+                        Console.WriteLine($"  [삭제 감지] Idx: {originalMap.Idx}, Name: {originalMap.Name}");
+                    }
+                    else
+                    {
+                        // 식별자는 같지만, 내용이 다른 경우 (수정됨)
+                        if (!_comparer.AreContentsEqual(originalMap, correspondingMapInRecv))
+                        {
+                            this.Map_Modified.Add(correspondingMapInRecv); // 최신 수정된 맵 추가
+                            Console.WriteLine($"  [수정 감지] Idx: {originalMap.Idx}, Original Name: {originalMap.Name}, New Name: {correspondingMapInRecv.Name}");
+                        }
+                    }
+                }
 
                 // 2. 새로 추가된 파일 처리
                 Console.WriteLine($"\n2. 새로 추가된 파일 처리 시도:");
-                this.Map_Add = this.compare_maplist_add(MapSectors_recv, this.MapSectors);
+                foreach (MapSector newMap in MapSectors_recv)
+                {
+                    // 기존 this.MapSectors에 newMap과 동일한 식별자를 가진 맵이 없는 경우 (추가됨)
+                    if (!this.MapSectors.Contains(newMap, _comparer))
+                    {
+                        this.Map_Add.Add(newMap);
+                        Console.WriteLine($"  [추가 감지] Idx: {newMap.Idx}, Name: {newMap.Name}");
+                    }
+                }
+
+                item.Protocol = "1-3-1";
+                await this.ExcuteCommand_Send(item);
 
                 // 3. 메타 JSON 파일 업데이트 (순서 변경 및 속성 업데이트 포함)
                 this.MapSectors = MapSectors_recv;
+
+                // 4. 서버에 추가된 도면 파일 전송
+                foreach(MapSector map_add in this.Map_Add)
+                {
+                    item.Protocol = "1-3-2";
+                    item.JsonData["INDEX_MAP"] = map_add.Idx;
+                    item.JsonData["NAME_MAP"] = map_add.Name;
+
+                    JObject obj = new JObject();
+                    obj["NAME"] = System.IO.Path.GetFileName(map_add.Path_Origin);
+                    obj["SIZE"] = map_add.SizeB;
+
+                    item.JsonData["__META__"] = obj;
+                    item.BinaryData = File.ReadAllBytes(map_add.Path_Origin);
+
+                    await this.ExcuteCommand_Send(item);
+                }
+
+                // 파일 저장
                 this.save_maplist(true);
+
+                // 지도 목록 다시 요청
+                item.JsonData = new JObject();
+                item.Protocol = "1-3-0";
+                DataReceivedEventArgs send_130 = await this.ExcuteCommand_SendAndWait(item, item.Protocol);
+                this.Act_SendAndRecv(send_130);
+
             }
 
             this.MapSectors = this.load_maplist(true);      // 도면 목록 다시 불러오기
@@ -178,10 +240,10 @@ namespace client_supervisor
                 dict_meta.Add("NUM_MAP", mapData.Num_Map);
                 dict_meta.Add("IDX", mapData.Idx);
                 dict_meta.Add("NAME", mapData.Name);
-                dict_meta.Add("PATH", mapData.Path); // 업데이트된 Path를 사용
+                dict_meta.Add("PATH", mapData.Path); // 파일 경로는 이름따라가기에 여기서 생성
 
                 string fullPathForSize = "";
-                if (save_path) fullPathForSize = System.IO.Path.Combine(this.path_maps, mapData.Path);
+                if (save_path) fullPathForSize = mapData.Path;
 
                 try
                 {
@@ -211,17 +273,19 @@ namespace client_supervisor
         // 지도 목록 비교 - 실행 후 삭제
         public List<int> compare_maplist_delete(ObservableCollection<MapSector> src, ObservableCollection<MapSector> tgt, bool filedelete = true)
         {
+            Console.WriteLine("지도 동기화 시작 - 삭제");
             List<int> list_remove = new();
             baseImage.Source = null;
             System.Threading.Thread.Sleep(50);
 
             foreach (var item in src)
             {
-                Console.WriteLine($"  현재 항목 : {item.Name} ({item.Path})");
+                //Console.WriteLine($"  현재 항목 : {item.Name} ({item.Path})");
                 // 캡쳐 기준 해당 항목이 없는 경우 삭제
                 if (!tgt.Contains(item))
                 {
                     list_remove.Add(item.Num_Map);      // 삭제할 지도 번호를 목록에 추가
+                    Console.WriteLine($"삭제 핀 번호 : {item.Idx}");
 
                     if (filedelete)
                     {
@@ -238,15 +302,17 @@ namespace client_supervisor
         // 지도 목록 비교 - 실행 후 추가
         public List<MapSector> compare_maplist_add(ObservableCollection<MapSector> src, ObservableCollection<MapSector> tgt, bool filecopy = true)
         {
+            Console.WriteLine("지도 동기화 시작 - 추가");
             List<MapSector> list_add = new();
 
-            foreach (var item in src)
+            foreach (var item in tgt)
             {
-                Console.WriteLine($"  현재 항목 : {item.Name} ({item.Path})");
+                //Console.WriteLine($"현재 항목 : {item.Name} ({item.Path})");
                 // 캡쳐 기준 해당 항목이 없는 경우 또는 캡쳐 기준 갯수가 하나도 없는 경우 추가
-                if (!tgt.Contains(item))
+                if (!src.Contains(item))
                 {
                     list_add.Add(item.Copy());          // 추가된 사항에 대해서 리스트에 추가
+                    Console.WriteLine($"추가 핀 번호 : {item.Idx}");
                     if (filecopy)
                     {
                         string targetFilePath = System.IO.Path.Combine(this.path_maps, System.IO.Path.GetFileName(item.Path_Origin));
@@ -352,6 +418,7 @@ namespace client_supervisor
         {
             Header_Manage_Map.IsEnabled = true;
             Header_Manage_Pin.IsEnabled = true;
+            Header_Log.IsEnabled = true;
 
             Header_Conn.IsEnabled = false;
             Header_Disconn.IsEnabled = true;
@@ -359,40 +426,53 @@ namespace client_supervisor
 
             // 접속 요청 송신 및 수신
             send_item.Protocol = "1-0-0";
-            await this.ExcuteCommand_Send(send_item);
+            DataReceivedEventArgs send_100 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
+            this.Act_SendAndRecv(send_100);
 
             // 연결이 유지될때만 아래 태스크 실행, 연결이 종료되면 수행 불가 
             if (this.clientService.IsConnected)
             {
                 // 고장원인 목록 요청
                 send_item.Protocol = "1-0-1";
-                await this.ExcuteCommand_Send(send_item);
+                DataReceivedEventArgs send_101 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
+                this.Act_SendAndRecv(send_101);
 
                 // 이상 상태 처리 목록 요청
                 send_item.Protocol = "1-0-2";
-                await this.ExcuteCommand_Send(send_item);
+                DataReceivedEventArgs send_102 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
+                this.Act_SendAndRecv(send_102);
+
+                // 등록되지 않은 MAC 목록 요청
+                send_item.Protocol = "1-0-3";
+                DataReceivedEventArgs send_103 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
+                this.Act_SendAndRecv(send_103);
 
                 // 지도 목록 요청
                 send_item.Protocol = "1-3-0";
-                await this.ExcuteCommand_Send(send_item);
+                DataReceivedEventArgs send_130 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
+                this.Act_SendAndRecv(send_130);
 
+                Console.WriteLine($"추가 갯수 : {this.Map_Add.Count}");
                 // 추가해야하는 지도가 있다면 서버에 요청
-                for (int i = 0; i < Map_Add.Count; i++)
+                foreach (MapSector map in this.Map_Add)
                 {
                     send_item.Protocol = "1-3-3";
-                    send_item.JsonData["NUM_MAP"] = Map_Add[i].Num_Map;
-                    this.ExcuteCommand_Send(send_item);     // 데이터 요청 송신
+                    send_item.JsonData["NUM_MAP"] = map.Num_Map;
+                    DataReceivedEventArgs send_133 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
+                    this.Act_SendAndRecv(send_133);
                 }
 
                 // JSON 객체 초기화
                 send_item.JsonData = new JObject();
 
                 // 저장된 메타데이터 불러오기
-                //this.MapSectors = this.load_maplist(true);
+                this.MapSectors = this.load_maplist(true);
 
                 // 핀 목록 요청
                 send_item.Protocol = "1-1-0";
-                await this.ExcuteCommand_Send(send_item);
+                //await this.ExcuteCommand_Send(send_item);
+                DataReceivedEventArgs send_110 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
+                this.Act_SendAndRecv(send_110);
             }
         }
         // 서버 연결이 끊어졌을 때 실행되는 메서드
@@ -400,32 +480,20 @@ namespace client_supervisor
         {
             Header_Manage_Map.IsEnabled = false;
             Header_Manage_Pin.IsEnabled = false;
+            Header_Log.IsEnabled = false;
 
+            this.PinList.Clear();
+            this.MapSectors.Clear();
+            this.mainCanvas.Children.Clear();
+            this.baseImage.Source = null;
+
+            this.ResetDetailPanel();
+            this.DeactiveDetailPanel(wrap_kind_anomaly);
             this.DeleteRadioButtonToPanel(wrap_kind_anomaly);
 
             Header_Conn.IsEnabled = true;
             Header_Disconn.IsEnabled = false;
 
-            // 현재 대기 중인 TaskCompletionSource가 있다면 취소
-            lock (_responseTcsLock)
-            {
-                _responseTcs?.TrySetCanceled();
-                _responseTcs = null;
-            }
-        }
-        // 특정 응답을 기다리는 비동기 헬퍼 메서드
-        private Task<DataReceivedEventArgs> WaitForResponseAsync()
-        {
-            lock (_responseTcsLock)
-            {
-                // 이미 대기 중인 TaskCompletionSource가 있다면 오류 또는 취소 처리
-                if (_responseTcs != null && !_responseTcs.Task.IsCompleted)
-                {
-                    _responseTcs.TrySetCanceled(); // 이전 대기 취소
-                }
-                _responseTcs = new TaskCompletionSource<DataReceivedEventArgs>();
-                return _responseTcs.Task;
-            }
         }
 
         // 통합 데이터 수신 이벤트 핸들러
@@ -436,10 +504,9 @@ namespace client_supervisor
             {
                 // 데이터 수신 시 프로토콜 인스턴스 실행
                 WorkItem item = new WorkItem {Protocol = e.Protocol, JsonData = e.JsonData, BinaryData = e.BinaryData };
+
                 this.ExcuteCommand_Recv(item);
 
-                _responseTcs.TrySetResult(e);
-                _responseTcs = null;
             }));
         }
 
@@ -602,7 +669,7 @@ namespace client_supervisor
             scrollViewer.ScrollToVerticalOffset(0);
         }
 
-        private void canvas_pin_add(object sender, MouseButtonEventArgs e)
+        private async void canvas_pin_add(object sender, MouseButtonEventArgs e)
         {
             if (!isPinModeEnabled || baseImage.Source == null) return;
 
@@ -634,6 +701,8 @@ namespace client_supervisor
             Window_Add_Pin add_Pin = new Window_Add_Pin(this.MACList);      // MAC 주소 목록을 전달, 콤보박스에 추가
             if (add_Pin.ShowDialog() == true)
             {
+                this.PinList_Add.Clear();
+
                 ClientPin pin_new = new ClientPin
                 {
                     Idx = 0,
@@ -650,16 +719,33 @@ namespace client_supervisor
                 };
 
                 // 좌표값 재할당
-                pin_new.PosX -= pin_new.pin_icon.Width / 2;
-                pin_new.PosY -= pin_new.pin_icon.Height / 2;
+                pin_new.PosX -= pin_new.pin_icon.ActualWidth / 2;
+                pin_new.PosY -= pin_new.pin_icon.ActualHeight / 2;
 
                 PinAddToCanvas(pin_new);
 
                 // 핀 추가 종료
                 PinModeButton.IsChecked = false; 
                 this.pin_toggle_click(PinModeButton, null);
+                this.PinList_Add.Add(pin_new);      // 생성 목록에 넣기
 
                 // 서버에 해당 핀 정보 전송
+                WorkItem item = new WorkItem();
+                item.Protocol = "1-3-4";
+                await this.ExcuteCommand_Send(item);
+
+                // 서버 적용 시간 유예
+                Thread.Sleep(50);
+
+                // MAC 리스트 재송신 요청
+                item.Protocol = "1-0-3";
+                DataReceivedEventArgs send_103 = await this.ExcuteCommand_SendAndWait(item, item.Protocol);
+                this.Act_SendAndRecv(send_103);
+
+                // 핀 목록 재요청
+                item.Protocol = "1-1-0";
+                DataReceivedEventArgs send_110 = await this.ExcuteCommand_SendAndWait(item, item.Protocol);
+                this.Act_SendAndRecv(send_110);
             }
         }
 
@@ -709,34 +795,60 @@ namespace client_supervisor
             }
         }
 
-        public void Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show("Test");
-        }
         // 핀 목록 창 띄우기, 변경사항을 서버에 전송
-        private void ClickManagePin(object sender, RoutedEventArgs e)
+        private async void ClickManagePin(object sender, RoutedEventArgs e)
         {
+            // manage_Pin 다이얼로그를 띄워 핀 관리 작업을 수행합니다.
             Window_Manage_Pin manage_Pin = new Window_Manage_Pin(this.PinList, this.MapSectors);
             if (manage_Pin.ShowDialog() == true)
             {
-                // 백업본 생성
-                List<ClientPin> backups = new List<ClientPin>();
-                foreach (ClientPin pin in this.PinList)
-                {
+                ObservableCollection<ClientPin> pin_recv = manage_Pin.PinList_Origin;
+                ClientPinComparer _comparer = new ClientPinComparer();
+                HashSet<ClientPin> pinRecvHashSet = new HashSet<ClientPin>(pin_recv, _comparer);
 
+                this.PinList_Modified.Clear(); // 수정된 핀 객체를 저장할 리스트
+                this.PinList_Remove.Clear();
+
+                // --- 1. 기존 핀 목록(this.PinList)을 순회하며 삭제 및 수정된 핀을 확인합니다. ---
+                foreach (ClientPin originalPin in this.PinList)
+                {
+                    // 현재 originalPin과 동일한 식별자(Idx, MAC)를 가진 핀이 pin_recv에 있는지 찾습니다.
+                    ClientPin correspondingPinInRecv = pinRecvHashSet.FirstOrDefault(p => _comparer.Equals(p, originalPin));
+
+                    if (correspondingPinInRecv == null)
+                    {
+                        this.PinList_Remove.Add(originalPin.Idx);
+                    }
+                    else
+                    {
+                        if (!_comparer.AreContentsEqual(originalPin, correspondingPinInRecv))
+                        {
+                            this.PinList_Modified.Add(correspondingPinInRecv);
+                        }
+                    }
                 }
 
-                // 기존 핀들 전부 다 삭제
+                // --- 캔버스 및 핀 목록 업데이트 ---
+                // 기존 캔버스의 모든 핀 UI 요소를 삭제합니다.
                 this.mainCanvas.Children.Clear();
-                this.PinList = manage_Pin.PinList_Origin;
+                this.PinList = pin_recv;
 
-                // 변경된 목록대로 핀 재배치
                 foreach (ClientPin pin_new in this.PinList)
                 {
-                    PinAddToCanvas(pin_new);        // 핀 리스트에는 추가하지않고 캔버스에 추가
+                    PinAddToCanvas(pin_new);
                 }
 
-                // 변경사항을 서버에 전송
+                // --- 변경 사항을 서버에 전송 ---
+                // 프로토콜 1-3-4로 변경 사항 전송 명령을 실행합니다.
+                WorkItem item = new WorkItem();
+                item.Protocol = "1-3-4";
+                await this.ExcuteCommand_Send(item); // 비동기 전송
+
+                // --- 핀 목록 재요청 ---
+                // 프로토콜 1-1-0으로 서버에 핀 목록을 다시 요청합니다.
+                item.Protocol = "1-1-0";
+                DataReceivedEventArgs send_110 = await this.ExcuteCommand_SendAndWait(item, item.Protocol); // 비동기 전송 후 응답 대기
+                this.Act_SendAndRecv(send_110); // 수신된 데이터를 처리합니다.
             }
         }
 
@@ -800,10 +912,14 @@ namespace client_supervisor
                 label_data_map.Content = MapSectors.FirstOrDefault(sector => sector.Idx == clickedPin.MapIndex)?.Name;
                 label_data_loc.Content = clickedPin.Name_Location;
                 label_data_manager.Content = clickedPin.Name_Manager;
+
+
                 // 해당 클라이언트가 접속하지 않았다면
                 if (!clickedPin.State_Connect)
                 {
-                    label_data_state.Content = "서버와 연결되지 않음.";
+                    pb_state_active.Content = "";
+                    pb_state_active.IsEnabled = false;
+                    label_data_state.Content = "서버와 연결되지 않음";
                 }
                 else
                 {
@@ -831,7 +947,14 @@ namespace client_supervisor
                 }
 
                 // 지도 역시 특정 페이지로 전환
-                this.idx_map = clickedPin.MapIndex;
+                for (int i = 0; i < this.MapSectors.Count; i ++)
+                {
+                    if (this.MapSectors[i].Idx == clickedPin.MapIndex)
+                    {
+                        this.idx_map = i;
+                        break;
+                    }
+                }
 
                 foreach (var child in mainCanvas.Children)
                 {
@@ -840,9 +963,9 @@ namespace client_supervisor
                         pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Idx ? Visibility.Visible : Visibility.Collapsed;
                     }
                 }
-                this.ResetDetailPanel(); // 세부사항 패널 초기화
                 this.LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[this.idx_map].Path));
-                this.FitToViewer();
+                //this.FitToViewer();
+                activateDetailPanel(true);
             }
         }
         // 화면 전환 시 세부사항 패널 초기화
@@ -858,7 +981,7 @@ namespace client_supervisor
             pb_state_active.IsEnabled = false;
         }
         // 상황 패널 초기화
-        private void ResetDetailPanel_Situation(WrapPanel parentPanel)
+        private void DeactiveDetailPanel(WrapPanel parentPanel)
         {
             label_start_datetime.ClearValue(ContentProperty);
             label_proc_datetime.ClearValue(ContentProperty);
@@ -884,18 +1007,18 @@ namespace client_supervisor
         }
 
         // 전체 동작, 전체 정지 버튼 클릭 시 실행
-        private void OnStateActiveAll(bool active)
+        private async void OnStateActiveAll(bool active)
         {
-            WorkItem send_item = new();
+            WorkItem send_item = new WorkItem();
             send_item.Protocol = "1-1-2";
             send_item.JsonData["STATE_ACTIVE"] = active;
 
-            this.ExcuteCommand_Send(send_item);
+            await this.ExcuteCommand_Send(send_item);
         }
 
         private void pb_proc_init_Click(object sender, RoutedEventArgs e)
         {
-            ResetDetailPanel_Situation(wrap_kind_anomaly);
+            DeactiveDetailPanel(wrap_kind_anomaly);
         }
         // 이미지 불러오기 메서드
         public void LoadImageSafely(string relativeImagePath)
@@ -930,13 +1053,56 @@ namespace client_supervisor
             }
         }
         // 개별 작동상태에 대한 상태 전환 요청
-        private void pb_state_active_Click(object sender, RoutedEventArgs e)
+        private async void pb_state_active_Click(object sender, RoutedEventArgs e)
         {
+
             // 현재 클릭되어 우측에 표시된 핀에 대하여 라벨로 상태 확인 후 작동, 대기 상태 전환 요청
-
+            Int32.TryParse(label_data_pin.Content.ToString(), out int num_pin);
             // 현재 클릭된 핀 번호 및 STATE_ACTIVE 획득
-            
+            for(int i = 0; i < this.PinList.Count; i ++)
+            {
+                // 목록의 핀 번호와 현재 선택된 핀 번호가 같다면
+                if(this.PinList[i].Idx == num_pin)
+                {
+                    WorkItem item = new WorkItem();
+                    item.Protocol = "1-1-1";
+                    item.JsonData["NUM_PIN"] = num_pin;
 
+                    // STATE_ACTIVE 상태 변경, bool이라서 반전 실행
+                    this.PinList[i].State_Active = !this.PinList[i].State_Active;
+                    item.JsonData["STATE_ACTIVE"] = this.PinList[i].State_Active;
+                    
+                    await this.ExcuteCommand_Send(item);      // 1-1-1 송신
+
+                    // 핀 상태 변경 조회
+                    item.Protocol = "1-1-0";
+                    DataReceivedEventArgs send_110 = await this.ExcuteCommand_SendAndWait(item, item.Protocol); // 비동기 전송 후 응답 대기
+                    this.Act_SendAndRecv(send_110); // 수신된 데이터를 처리합니다.
+
+                    label_data_state.Content = this.PinList[i].State_Active ? "작동 중" : "대기 중";
+                    pb_state_active.Content = this.PinList[i].State_Active ? "정지" : "작동";
+                }
+            }
+        }
+        // 이전 기록 창을 띄우기 위한 
+        private void pb_log_Click(object sender, RoutedEventArgs e)
+        {
+            Window_Log_TotalAnomaly log_total = new Window_Log_TotalAnomaly();
+            log_total.Req_Log_Date += this.req_log_total_datetime;
+            if (log_total.ShowDialog() == true)
+            {
+
+            }
+        }
+
+        // 이전 기록 확인에서 날짜가 변경될 때 마다 창에서 값을 받아서 서버로 전송
+        private void req_log_total_datetime(object sender, DateTime selected)
+        {
+            WorkItem item = new WorkItem();
+            item.Protocol = "1-2-2";
+            item.JsonData["DATE_REQ"] = selected.ToString();
+
+            this.ExcuteCommand_Send(item);
         }
     }
 }

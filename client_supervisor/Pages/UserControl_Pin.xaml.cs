@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
+using System.Reflection.Metadata.Ecma335;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -12,7 +16,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
-using System.ComponentModel;
 
 namespace client_supervisor
 {
@@ -98,7 +101,8 @@ namespace client_supervisor
         }
 
         private string _mac;
-        public string MAC { 
+        public string MAC
+        {
             get { return _mac; }
             set
             {
@@ -237,7 +241,7 @@ namespace client_supervisor
             try
             {
                 var conv = new BrushConverter();
-                var brush = (Brush) conv.ConvertFromString(color);
+                var brush = (Brush)conv.ConvertFromString(color);
                 pin_icon.Stroke = brush;
             }
             catch (FormatException)
@@ -272,16 +276,16 @@ namespace client_supervisor
             switch (mode)
             {
                 case 0:
-                    ChangeStrokeColor("Black"); 
-                    ChangeFillColor("DarkBlue"); 
+                    ChangeStrokeColor("Black");
+                    ChangeFillColor("DarkBlue");
                     break;
                 case 1:
-                    ChangeStrokeColor("Black"); 
-                    ChangeFillColor("#FFB0B0B0"); 
+                    ChangeStrokeColor("Black");
+                    ChangeFillColor("#FFB0B0B0");
                     break;
                 case 2:
-                    ChangeStrokeColor("Black"); 
-                    ChangeFillColor("#FFFFA0A0"); 
+                    ChangeStrokeColor("Black");
+                    ChangeFillColor("#FFFFA0A0");
                     break;
                 default:
                     Console.WriteLine("Invalid mode. Please use 0, 1, or 2.");
@@ -348,27 +352,49 @@ namespace client_supervisor
 
             return copy;
         }
+    }
 
-        // ClientPin의 equal과 gethashcode가 봉인되어 있어서 비교하는 클래스 생성
-        public class ClientPinComparer : IEqualityComparer<ClientPin>
+    // ClientPin의 equal과 gethashcode가 봉인되어 있어서 비교하는 클래스 생성
+    public class ClientPinComparer : IEqualityComparer<ClientPin>
+    {
+        // 1. IEqualityComparer 인터페이스를 위한 Equals (Idx, MAC만 비교 - "식별자 동일성")
+        public bool Equals(ClientPin x, ClientPin y)
         {
-            public bool Equals(ClientPin x, ClientPin y)
-            {
-                if (ReferenceEquals(x, y)) return true;
+            if (ReferenceEquals(x, y)) return true;
+            if (ReferenceEquals(x, null) || ReferenceEquals(y, null)) return false;
 
-                if (ReferenceEquals(x, null) || ReferenceEquals(y, null)) return false;
+            return x.Idx == y.Idx &&
+                   string.Equals(x.MAC, y.MAC, StringComparison.OrdinalIgnoreCase);
+        }
 
-                return x.Idx == y.Idx &&
-                       string.Equals(x.MAC, y.MAC, System.StringComparison.OrdinalIgnoreCase); // MAC은 대소문자 구분 없이 비교
-            }
+        // 2. IEqualityComparer 인터페이스를 위한 GetHashCode (Idx, MAC만으로 해시 생성)
+        public int GetHashCode(ClientPin obj)
+        {
+            if (obj == null) return 0;
+            return HashCode.Combine(obj.Idx, obj.MAC?.ToLowerInvariant());
+        }
 
-            public int GetHashCode(ClientPin obj)
-            {
-                // obj가 null일 경우 예외 방지
-                if (obj == null) return 0;
+        // 3. 새로운 메서드: 모든 속성의 "내용"을 비교하는 메서드 (추가)
+        public bool AreContentsEqual(ClientPin x, ClientPin y)
+        {
+            if (ReferenceEquals(x, y)) return true;
+            if (ReferenceEquals(x, null) || ReferenceEquals(y, null)) return false;
 
-                return System.HashCode.Combine(obj.Idx, obj.MAC?.ToLowerInvariant()); // MAC은 소문자로 변환하여 일관된 해시 생성
-            }
+            // 모든 관련 속성들을 비교하여 내용 동일성 판단
+            return x.Idx == y.Idx &&
+                   string.Equals(x.MAC, y.MAC, StringComparison.OrdinalIgnoreCase) && // MAC은 대소문자 무시
+                   string.Equals(x.Name_Pin, y.Name_Pin, StringComparison.Ordinal) && // Name_Pin 비교 (대소문자 구분)
+                   string.Equals(x.Name_Location, y.Name_Location, StringComparison.Ordinal) && // Name_Location 비교
+                   string.Equals(x.Name_Manager, y.Name_Manager, StringComparison.Ordinal) && // Name_Manager 비교
+                   x.MapIndex == y.MapIndex &&
+                   x.PosX == y.PosX &&
+                   x.PosY == y.PosY &&
+                   x.Date_Reg == y.Date_Reg &&
+                   x.State_Anomaly == y.State_Anomaly &&
+                   x.State_Active == y.State_Active &&
+                   x.Mode_Color == y.Mode_Color &&
+                   x.IsSelected == y.IsSelected &&
+                   x.State_Connect == y.State_Connect;
         }
     }
 }

@@ -118,14 +118,12 @@ namespace client_supervisor
             MapSector? other = obj as MapSector;
 
             // 프로퍼티 비교: 모든 핵심 프로퍼티들이 같은지 확인
-            return string.Equals(Name, other.Name) &&
-                   string.Equals(Path, other.Path) &&
-                   SizeB == other.SizeB;
+            return Idx == other.Idx;
         }
 
         public override int GetHashCode()
         {
-            return System.HashCode.Combine(Name, Path, SizeB);
+            return System.HashCode.Combine(Idx);
         }
 
         public MapSector Copy()
@@ -141,6 +139,37 @@ namespace client_supervisor
             copy.Path_Origin = this.Path_Origin;
 
             return copy;
+        }
+    }
+
+    public class MapSectorComparer : IEqualityComparer<MapSector>
+    {
+        public bool Equals(MapSector x, MapSector y)
+        {
+            if (ReferenceEquals(x, y)) return true;
+            if (ReferenceEquals(x, null) || ReferenceEquals(y, null)) return false;
+
+            return x.Idx == y.Idx; // Idx만으로 고유성 판단
+        }
+
+        public int GetHashCode(MapSector obj)
+        {
+            if (obj == null) return 0;
+            return obj.Idx.GetHashCode();
+        }
+
+        // MapSector의 모든 속성 "내용"을 비교하는 메서드 (ClientPin처럼 Equals 오버라이딩이 안 된다면 필요)
+        // 만약 MapSector의 Equals가 봉인되어 있다면 이 메서드를 사용하세요.
+        public bool AreContentsEqual(MapSector x, MapSector y)
+        {
+            if (ReferenceEquals(x, y)) return true;
+            if (ReferenceEquals(x, null) || ReferenceEquals(y, null)) return false;
+
+            // MapSector.Equals에서 비교하는 모든 속성들을 여기에 추가
+            return x.Idx == y.Idx &&
+                   string.Equals(x.Name, y.Name, StringComparison.Ordinal) &&
+                   string.Equals(x.Path_Origin, y.Path_Origin, StringComparison.Ordinal) &&
+                   x.SizeB == y.SizeB;
         }
     }
 

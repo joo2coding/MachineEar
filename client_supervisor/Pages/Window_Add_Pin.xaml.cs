@@ -30,6 +30,7 @@ namespace client_supervisor
         public Window_Add_Pin(ObservableCollection<string> macList)
         {
             InitializeComponent();
+            ComboBox_MAC.Items.Clear();
             this.macList = macList;
             
             // 콤보박스에 MAC 주소 목록 추가
@@ -41,8 +42,7 @@ namespace client_supervisor
 
         private void pb_ok_Click(object sender, RoutedEventArgs e)
         {
-            //if(TextBox_Name.Text == "" || TextBox_Manager.Text == "" || TextBox_Location.Text == "" || ComboBox_MAC.Text == "")
-            if(TextBox_Name.Text == "" || TextBox_Manager.Text == "" || TextBox_Location.Text == "")
+            if(TextBox_Name.Text == "" || TextBox_Manager.Text == "" || TextBox_Location.Text == "" || ComboBox_MAC.Text == "")
             {
                 MessageBox.Show("빈칸이 존재합니다.\n다시 시도해주세요.", "핀 추가 경고");
             }

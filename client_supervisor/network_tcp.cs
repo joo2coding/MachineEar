@@ -1,5 +1,6 @@
 ﻿using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -8,6 +9,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 
 namespace client_supervisor
 {
@@ -60,48 +62,133 @@ namespace client_supervisor
     {
         private Socket _clientSocket;
         private CancellationTokenSource _receiveCts;
-        private const int BufferSize = 8192;
+        private const int BufferSize = 8192; // 소켓에서 한 번에 읽어올 청크 크기
 
-        // UI에 연결 상태 변경을 알릴 이벤트
         public event ConnectionStatusChangedEventHandler ConnectionStatusChanged;
-        // UI에 JSON과 바이너리 데이터 수신을 알릴 통합 이벤트
         public event DataReceivedEventHandler DataReceived;
-        // UI에 오류 발생을 알릴 이벤트
         public event ErrorOccurredEventHandler ErrorOccurred;
+
+        private SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1); // 동시 송신을 1개로 제한
+        private ConcurrentDictionary<string, TaskCompletionSource<DataReceivedEventArgs>> _pendingResponses = new ConcurrentDictionary<string, TaskCompletionSource<DataReceivedEventArgs>>();
+        private DispatcherSynchronizationContext _mainSynchronizationContext; // UI 스레드 컨텍스트
+
 
         public bool IsConnected => _clientSocket != null && _clientSocket.Connected;
 
-        private byte[] _receiveBuffer = new byte[8192]; // 소켓에서 직접 읽어올 임시 버퍼
+        private byte[] _receiveBuffer = new byte[BufferSize]; // 소켓에서 직접 읽어올 임시 버퍼 (청크 단위)
         private MemoryStream _currentMessageBuffer = new MemoryStream(); // 현재 메시지를 구성하는 데이터를 축적할 버퍼
 
-        // 메시지 파싱 상태를 나타내는 열거형
         private enum ReceiveState
         {
-            WaitingForHeader,
-            WaitingForJsonData,
-            WaitingForFileData
+            WaitingForHeader,       // 헤더(전체 크기, JSON 크기) 대기
+            WaitingForJsonData,     // JSON 데이터 대기
+            WaitingForFileData      // 파일 데이터 대기
         }
 
         private ReceiveState _currentState = ReceiveState.WaitingForHeader; // 현재 수신 상태
-        private int _totalMessageSize = 0; // 헤더에서 읽은 전체 메시지 크기
-        private int _jsonSize = 0;       // 헤더에서 읽은 JSON 데이터 크기
+        private int _totalMessageSize = 0; // 헤더에서 읽은 전체 메시지 크기 (JSON + Binary 데이터의 크기, 헤더 자체는 포함하지 않음)
+        private int _jsonSize = 0;         // 헤더에서 읽은 JSON 데이터 크기
 
-        private string _parsedJsonData = string.Empty;
+        // 파싱된 데이터를 임시로 저장할 변수
         private JObject _parsedJsonConv = new JObject();
         private byte[] _parsedBinaryData = new byte[0];
         private string _parseProtocol = string.Empty;
 
         public TcpClientService()
         {
-            // 생성자에서는 특별한 초기화 없이 이벤트만 정의
+            _mainSynchronizationContext = (DispatcherSynchronizationContext)SynchronizationContext.Current;
+            if (_mainSynchronizationContext == null)
+            {
+                // UI 스레드에서 인스턴스화되지 않았다면, 현재 스레드의 컨텍스트를 사용
+                // 하지만 WPF 애플리케이션에서는 항상 UI 스레드에서 생성되어야 합니다.
+                _mainSynchronizationContext = new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher);
+            }
         }
 
-        /// <summary>
-        /// 서버에 비동기적으로 연결을 시도합니다.
-        /// </summary>
-        /// <param name="ipAddress">서버 IP 주소</param>
-        /// <param name="port">서버 포트</param>
-        /// <returns>연결 성공 여부</returns>
+        public async Task<DataReceivedEventArgs> SendMessageAndWaitForResponseAsync(WorkItem item, string responseProtocol, int timeoutMs = 5000)
+        {
+            if (!IsConnected)
+            {
+                OnErrorOccurred("오류: 서버에 연결되어 있지 않습니다. 메시지를 보낼 수 없습니다.");
+                throw new InvalidOperationException("서버에 연결되어 있지 않습니다.");
+            }
+
+            // 송신 락 획득: SendMessageWithHeaderAsync 또는 다른 SendAndWait 요청과 겹치지 않도록 합니다.
+            await _sendLock.WaitAsync();
+            try
+            {
+                // 응답을 받을 TaskCompletionSource 생성
+                var tcs = new TaskCompletionSource<DataReceivedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+                string responseKey = responseProtocol;
+
+                // 이미 해당 응답 프로토콜에 대한 대기 중인 요청이 있다면 오류 발생
+                if (!_pendingResponses.TryAdd(responseKey, tcs))
+                {
+                    throw new InvalidOperationException($"응답 키 '{responseKey}'에 대한 요청이 이미 대기 중입니다. 중복 요청 불가.");
+                }
+
+                // 메시지 구성 (SendMessageWithHeaderAsync와 동일한 로직)
+                item.JsonData["PROTOCOL"] = item.Protocol; // WorkItem에 프로토콜이 있지만, JSON에 한 번 더 넣어줍니다.
+                string json_conv = item.JsonData.ToString(Newtonsoft.Json.Formatting.None);
+                byte[] jsonBytes = Encoding.UTF8.GetBytes(json_conv ?? "");
+                byte[] fileBytes = item.BinaryData ?? new byte[0];
+
+                int jsonSize = jsonBytes.Length;
+                int totalPayloadSize = jsonSize + fileBytes.Length;
+
+                byte[] totalSizeBytes = BitConverter.GetBytes(totalPayloadSize);
+                byte[] jsonSizeBytes = BitConverter.GetBytes(jsonSize);
+
+                if (BitConverter.IsLittleEndian)
+                {
+                    Array.Reverse(totalSizeBytes);
+                    Array.Reverse(jsonSizeBytes);
+                }
+
+                byte[] header = new byte[8];
+                Buffer.BlockCopy(totalSizeBytes, 0, header, 0, 4);
+                Buffer.BlockCopy(jsonSizeBytes, 0, header, 4, 4);
+
+                using (MemoryStream stream = new MemoryStream())
+                {
+                    stream.Write(header, 0, header.Length);
+                    stream.Write(jsonBytes, 0, jsonBytes.Length);
+                    stream.Write(fileBytes, 0, fileBytes.Length);
+
+                    byte[] fullMessage = stream.ToArray();
+                    await _clientSocket.SendAsync(new ArraySegment<byte>(fullMessage), SocketFlags.None);
+                    Console.WriteLine($"[SendAndWait] Protocol : {item.Protocol}, Total Size: {fullMessage.Length} bytes (Header: 8, JSON: {jsonSize}, Binary: {fileBytes.Length})");
+                }
+
+                // 타임아웃 작업 생성
+                var timeoutTask = Task.Delay(timeoutMs);
+
+                // 응답 Task 또는 타임아웃 Task 중 먼저 완료되는 것을 기다림
+                var completedTask = await Task.WhenAny(tcs.Task, timeoutTask);
+
+                if (completedTask == timeoutTask)
+                {
+                    // 타임아웃 발생: 대기 목록에서 제거하고 예외 발생
+                    _pendingResponses.TryRemove(responseKey, out _);
+                    tcs.TrySetCanceled(); // TCS를 Canceled 상태로 설정하여 대기 중인 Task를 취소
+                    throw new TimeoutException($"서버 응답 시간 초과: '{responseProtocol}' 프로토콜에 대한 응답을 {timeoutMs}ms 내에 수신하지 못했습니다.");
+                }
+
+                // 정상적으로 응답이 왔으므로 결과를 반환
+                return await tcs.Task;
+            }
+            catch (Exception ex)
+            {
+                // SendAndWait 과정에서 발생한 모든 예외를 다시 던짐
+                OnErrorOccurred($"SendMessageAndWaitForResponseAsync 오류: {ex.Message}");
+                _sendLock.Release();
+                throw;
+            }
+            finally
+            {
+            }
+        }
+
         public async Task<bool> ConnectAsync(string ipAddress, int port)
         {
             if (IsConnected)
@@ -118,9 +205,8 @@ namespace client_supervisor
                 Console.WriteLine($"서버에 연결 중... ({ipAddress}:{port})");
                 await _clientSocket.ConnectAsync(serverEndPoint);
 
-                // 데이터 수신 시작
                 _receiveCts = new CancellationTokenSource();
-                _ = Task.Run(() => ReceiveDataAsync(_receiveCts.Token)); // 백그라운드에서 수신 루프 시작
+                _ = Task.Run(() => ReceiveDataAsync(_receiveCts.Token));
 
                 Console.WriteLine("서버에 성공적으로 연결되었습니다!");
                 OnConnectionStatusChanged(true);
@@ -141,30 +227,31 @@ namespace client_supervisor
             return false;
         }
 
-        /// <summary>
-        /// 서버로부터 데이터를 비동기적으로 수신하는 루프입니다.
-        /// </summary>
         private async Task ReceiveDataAsync(CancellationToken cancellationToken)
         {
-            // byte[] buffer = new byte[BufferSize]; // 이 임시 버퍼 대신 클래스 멤버인 _receiveBuffer 사용
-            try
+             try
             {
                 while (!cancellationToken.IsCancellationRequested && IsConnected)
                 {
-                    // Socket.ReceiveAsync는 실제로 데이터를 받은 바이트 수를 반환
+                    // MemoryStream에 데이터를 추가하기 전에, 읽기 Position을 저장.
+                    // 이 위치에서부터 새로운 데이터를 쓸 수 있도록 함.
+                    long previousPosition = _currentMessageBuffer.Position;
+                    _currentMessageBuffer.Position = _currentMessageBuffer.Length; // 현재 쓰기 가능한 맨 끝 위치로 이동
+
                     int bytesRead = await _clientSocket.ReceiveAsync(new ArraySegment<byte>(_receiveBuffer, 0, _receiveBuffer.Length), SocketFlags.None);
 
-                    if (bytesRead == 0) // 서버가 연결을 끊었을 경우
+                    if (bytesRead == 0)
                     {
                         Console.WriteLine("서버에서 연결을 종료했습니다.");
                         break;
                     }
 
-                    // 받은 데이터를 현재 메시지 버퍼에 추가
+                    // 받은 데이터를 현재 메시지 버퍼에 추가. MemoryStream의 Length는 bytesRead만큼 늘어남.
                     _currentMessageBuffer.Write(_receiveBuffer, 0, bytesRead);
 
-                    // 받은 데이터가 있을 때마다 메시지를 파싱 시도
-                    ProcessReceivedData();
+                    _currentMessageBuffer.Position = previousPosition; // 메시지 파싱 시작 위치로 되돌림
+
+                    ProcessReceivedData(); // 여기서 수정된 로직을 사용합니다.
                 }
             }
             catch (ObjectDisposedException)
@@ -176,7 +263,7 @@ namespace client_supervisor
                 if (ex.SocketErrorCode == SocketError.ConnectionReset || ex.SocketErrorCode == SocketError.Interrupted)
                 {
                     OnErrorOccurred("서버와의 연결이 강제로 끊어졌습니다.");
-                    OnConnectionStatusChanged(false); // 연결 상태 변경 이벤트 발생
+                    OnConnectionStatusChanged(false);
                 }
                 else
                 {
@@ -194,31 +281,26 @@ namespace client_supervisor
                     Console.WriteLine("수신 루프 종료. 연결을 끊습니다.");
                     Disconnect();
                 }
-                _currentMessageBuffer.Dispose(); // MemoryStream 자원 해제
             }
         }
 
         private void ProcessReceivedData()
         {
-            // _currentMessageBuffer의 현재 위치를 처음으로 설정하여 읽을 수 있도록 함
-            _currentMessageBuffer.Position = 0;
-
-            // 데이터를 모두 읽고 처리할 때까지 반복
-            while (true)
+            while (true) // 버퍼에 여러 메시지가 있을 수 있으므로 반복 처리
             {
+                long availableBytes = _currentMessageBuffer.Length - _currentMessageBuffer.Position;
+
                 switch (_currentState)
                 {
                     case ReceiveState.WaitingForHeader:
-                        // 헤더(8바이트)를 받을 수 있는 충분한 데이터가 있는지 확인
-                        if (_currentMessageBuffer.Length - _currentMessageBuffer.Position >= 8)
+                        if (availableBytes >= 8)
                         {
                             byte[] headerBytes = new byte[8];
-                            _currentMessageBuffer.Read(headerBytes, 0, 8); // 버퍼에서 8바이트 읽기
+                            _currentMessageBuffer.Read(headerBytes, 0, 8);
 
                             byte[] totalSizeBytes = new byte[4];
                             Buffer.BlockCopy(headerBytes, 0, totalSizeBytes, 0, 4);
 
-                            // JSON 크기 (다음 4바이트)
                             byte[] jsonSizeBytes = new byte[4];
                             Buffer.BlockCopy(headerBytes, 4, jsonSizeBytes, 0, 4);
 
@@ -228,136 +310,166 @@ namespace client_supervisor
                                 Array.Reverse(jsonSizeBytes);
                             }
 
-                            // 바이트 배열을 정수로 변환
-                            _totalMessageSize = BitConverter.ToInt32(totalSizeBytes, 0); // 전체 크기 (4바이트)
-                            _jsonSize = BitConverter.ToInt32(jsonSizeBytes, 0);         // JSON 크기 (4바이트)
+                            _totalMessageSize = BitConverter.ToInt32(totalSizeBytes, 0);
+                            _jsonSize = BitConverter.ToInt32(jsonSizeBytes, 0);
 
-
-                            // 헤더 유효성 검사 (예: JSON 크기가 전체 크기보다 클 수 없음)
-                            if (_jsonSize < 0 || _totalMessageSize < 8 || _jsonSize > _totalMessageSize)
+                            if (_jsonSize < 0 || _totalMessageSize < 0 || _jsonSize > _totalMessageSize)
                             {
                                 OnErrorOccurred($"잘못된 헤더 수신: TotalSize={_totalMessageSize}, JsonSize={_jsonSize}. 연결을 끊습니다.");
-                                Disconnect(); // 잘못된 헤더는 치명적인 오류로 간주하여 연결 끊기
-                                return; // 루프 종료
+                                Disconnect();
+                                return;
                             }
 
                             //Console.WriteLine($"헤더 수신: 전체 크기={_totalMessageSize}, JSON 크기={_jsonSize}");
-                            _currentState = ReceiveState.WaitingForJsonData; // 다음 상태로 전환
-
-                            // 새 메시지 처리를 시작할 때 임시 데이터 저장 변수 초기화
-                            _parsedJsonData = string.Empty;
-                            _parsedBinaryData = new byte[0];
+                            _currentState = ReceiveState.WaitingForJsonData;
+                            continue;
                         }
                         else
                         {
-                            return; // 헤더를 읽을 데이터가 부족하면 다음 수신을 기다림
+                            return;
                         }
-                        break;
 
                     case ReceiveState.WaitingForJsonData:
-                        // JSON 데이터를 받을 수 있는 충분한 데이터가 있는지 확인
-                        if (_currentMessageBuffer.Length - _currentMessageBuffer.Position >= _jsonSize)
+                        if (availableBytes >= _jsonSize)
                         {
-                            if (_jsonSize > 0) // JSON 데이터가 있는 경우에만 읽음
+                            string jsonString = "";
+                            if (_jsonSize > 0)
                             {
                                 byte[] jsonBytes = new byte[_jsonSize];
-                                _currentMessageBuffer.Read(jsonBytes, 0, _jsonSize); // JSON 크기만큼 데이터 읽기
-                                _parsedJsonData = Encoding.UTF8.GetString(jsonBytes);
-                                _parsedJsonConv = JObject.Parse(_parsedJsonData);
-                                _parseProtocol = _parsedJsonConv["PROTOCOL"].ToString();
-                                //Console.WriteLine($"JSON 데이터 수신: {_parsedJsonData}");
+                                _currentMessageBuffer.Read(jsonBytes, 0, _jsonSize);
+                                jsonString = Encoding.UTF8.GetString(jsonBytes);
+                                try
+                                {
+                                    _parsedJsonConv = JObject.Parse(jsonString);
+                                    if (_parsedJsonConv.ContainsKey("PROTOCOL"))
+                                    {
+                                        _parseProtocol = _parsedJsonConv["PROTOCOL"].ToString();
+                                    }
+                                    else
+                                    {
+                                        _parseProtocol = "UNKNOWN_PROTOCOL";
+                                    }
+                                    //Console.WriteLine($"JSON 데이터 수신: {_parsedJsonConv.ToString(Newtonsoft.Json.Formatting.None)}");
+                                }
+                                catch (Exception ex)
+                                {
+                                    OnErrorOccurred($"JSON 파싱 오류: {ex.Message}. 수신된 JSON: {jsonString}. 연결을 끊습니다.");
+                                    Disconnect();
+                                    return;
+                                }
                             }
                             else
                             {
-                                _parsedJsonData = string.Empty; // JSON 데이터가 없으면 빈 문자열
-                                //Console.WriteLine("JSON 데이터 없음.");
+                                _parsedJsonConv = new JObject();
+                                _parseProtocol = "NO_JSON";
                             }
 
-                            _currentState = ReceiveState.WaitingForFileData; // 다음 상태로 전환
+                            _currentState = ReceiveState.WaitingForFileData;
+                            continue;
                         }
                         else
                         {
-                            // JSON 데이터를 읽을 데이터가 부족하면 루프 종료
                             return;
                         }
-                        break;
 
                     case ReceiveState.WaitingForFileData:
-                        // 파일 데이터 크기 계산
-                        int fileDataSize = _totalMessageSize - _jsonSize; // 전체 - JSON 크기
-                        if (fileDataSize < 0) // 예외 처리 (이전 헤더 유효성 검사에서 걸러지겠지만, 안전을 위해)
+                        int fileDataSize = _totalMessageSize - _jsonSize;
+
+                        if (fileDataSize < 0)
                         {
                             OnErrorOccurred($"파일 데이터 크기 계산 오류: FileDataSize={fileDataSize}. 연결을 끊습니다.");
                             Disconnect();
                             return;
                         }
 
-                        // 파일 데이터를 받을 수 있는 충분한 데이터가 있는지 확인
-                        if (_currentMessageBuffer.Length - _currentMessageBuffer.Position >= fileDataSize)
+                        if (availableBytes >= fileDataSize)
                         {
-                            if (fileDataSize > 0) // 바이너리 데이터가 있는 경우에만 읽음
+                            if (fileDataSize > 0)
                             {
                                 byte[] fileDataBytes = new byte[fileDataSize];
-                                _currentMessageBuffer.Read(fileDataBytes, 0, fileDataSize); // 파일 크기만큼 데이터 읽기
+                                _currentMessageBuffer.Read(fileDataBytes, 0, fileDataSize);
                                 _parsedBinaryData = fileDataBytes;
                                 //Console.WriteLine($"파일 데이터 수신: {fileDataSize} 바이트");
                             }
                             else
                             {
-                                _parsedBinaryData = new byte[0]; // 바이너리 데이터가 없으면 빈 배열
+                                _parsedBinaryData = new byte[0];
                                 //Console.WriteLine("바이너리 데이터 없음.");
                             }
 
-                            // 하나의 완전한 메시지 처리가 완료되었으므로 통합 이벤트 발생
-                            OnDataReceived(new DataReceivedEventArgs(_parseProtocol, _parsedJsonConv, _parsedBinaryData));
+                            DataReceivedEventArgs receivedData = new DataReceivedEventArgs(_parseProtocol, _parsedJsonConv, _parsedBinaryData);
 
-                            // 버퍼 정리 및 상태 초기화
+                            // 대기 중인 요청에 대한 응답인지 확인
+                            if (_pendingResponses.TryRemove(receivedData.Protocol, out var tcs))
+                            {
+                                // 대기 중인 요청을 완료시킴
+                                _mainSynchronizationContext.Post(_ => tcs.TrySetResult(receivedData), null);
+                                _sendLock.Release(); // 응답이 왔으므로 송신 락 해제
+                                Console.WriteLine($"[SendAndWait] 응답 수신 및 락 해제: {receivedData.Protocol}");
+                            }
+                            else
+                            {
+                                // 일반 메시지인 경우, DataReceived 이벤트를 발생시킴
+                                OnDataReceived(receivedData);
+                                Console.WriteLine($"[Receive] 일반 메시지 수신: {receivedData.Protocol}");
+                            }
+
                             CleanupMessageBuffer();
-                            _currentState = ReceiveState.WaitingForHeader; // 다음 메시지를 위해 상태 초기화
+
+                            _currentState = ReceiveState.WaitingForHeader;
                             _totalMessageSize = 0;
                             _jsonSize = 0;
+
+                            if (_currentMessageBuffer.Length > 0)
+                            {
+                                continue;
+                            }
+                            else
+                            {
+                                return;
+                            }
                         }
                         else
                         {
-                            // 파일 데이터를 읽을 데이터가 부족하면 루프 종료
                             return;
                         }
-                        break;
+
+                    default:
+                        OnErrorOccurred($"알 수 없는 수신 상태: {_currentState}. 연결을 끊습니다.");
+                        Disconnect();
+                        return;
                 }
-            }
+            } // end while (true)
         }
 
+
+        /// <summary>
+        /// _currentMessageBuffer의 현재 Position부터 끝까지 남은 데이터를 스트림 시작 부분으로 이동시킵니다.
+        /// 이 메서드 호출 후 _currentMessageBuffer.Position은 0이 됩니다.
+        /// </summary>
         private void CleanupMessageBuffer()
         {
-            // 현재 읽기 위치(Position)부터 끝까지 남은 데이터의 길이
-            long remainingLength = _currentMessageBuffer.Length - _currentMessageBuffer.Position;
+            long currentPosition = _currentMessageBuffer.Position;
+            long remainingLength = _currentMessageBuffer.Length - currentPosition;
 
             if (remainingLength > 0)
             {
-                // 남은 데이터를 새 버퍼로 옮김
                 byte[] remainingBytes = new byte[remainingLength];
                 _currentMessageBuffer.Read(remainingBytes, 0, (int)remainingLength);
 
-                // 기존 스트림을 재설정하고 남은 데이터를 다시 씀
-                _currentMessageBuffer.SetLength(0); // 스트림 길이 0으로 리셋
+                _currentMessageBuffer.SetLength(0);
+                _currentMessageBuffer.Position = 0;
                 _currentMessageBuffer.Write(remainingBytes, 0, remainingBytes.Length);
-                _currentMessageBuffer.Position = 0; // 위치도 0으로 재설정
+                _currentMessageBuffer.Position = 0;
             }
             else
             {
-                // 남은 데이터가 없으면 스트림을 완전히 비움
                 _currentMessageBuffer.SetLength(0);
-                _currentMessageBuffer.Position = 0; // 위치도 0으로 재설정
+                _currentMessageBuffer.Position = 0;
             }
         }
 
-        /// <summary>
-        /// 서버로 JSON 메시지와 바이너리 데이터를 비동기적으로 전송합니다.
-        /// 메시지는 8바이트 헤더 (전체 크기 4바이트, JSON 크기 4바이트)와 함께 전송됩니다.
-        /// </summary>
-        /// <param name="jsonMessage">전송할 JSON 메시지 (null일 수 있음)</param>
-        /// <param name="binaryData">전송할 바이너리 데이터 (null일 수 있음)</param>
-        /// <returns>전송 성공 여부</returns>
+        // (SendMessageWithHeaderAsync, Disconnect, OnConnectionStatusChanged, OnDataReceived, OnErrorOccurred, Dispose methods remain the same)
         public async Task<bool> SendMessageWithHeaderAsync(WorkItem item)
         {
             if (!IsConnected)
@@ -366,34 +478,35 @@ namespace client_supervisor
                 return false;
             }
 
+            // --- SendAndWait와 겹치지 않도록 SendLock 추가 ---
+            // 응답을 기다리지 않는 메시지라도 동시 송신을 막기 위해 락을 사용합니다.
+            // 이렇게 하면 TCP 소켓을 통한 메시지 순서가 보장됩니다.
+            await _sendLock.WaitAsync();
             try
             {
-                item.JsonData["PROTOCOL"] = item.Protocol;      // JSON에 프로토콜 객체 입력
+                item.JsonData["PROTOCOL"] = item.Protocol;
 
-                string json_conv = item.JsonData.ToString();
+                string json_conv = item.JsonData.ToString(Newtonsoft.Json.Formatting.None);
 
-                byte[] jsonBytes = Encoding.UTF8.GetBytes(json_conv ?? ""); // JSON 메시지가 없으면 빈 문자열
-                byte[] fileBytes = item.BinaryData ?? new byte[0]; // 바이너리 데이터가 없으면 빈 배열
+                byte[] jsonBytes = Encoding.UTF8.GetBytes(json_conv ?? "");
+                byte[] fileBytes = item.BinaryData ?? new byte[0];
 
                 int jsonSize = jsonBytes.Length;
-                int totalSize = jsonSize + fileBytes.Length; // 헤더(8) + JSON + 바이너리
+                int totalPayloadSize = jsonSize + fileBytes.Length;
 
-                byte[] totalSizeBytes = BitConverter.GetBytes(totalSize);
+                byte[] totalSizeBytes = BitConverter.GetBytes(totalPayloadSize);
                 byte[] jsonSizeBytes = BitConverter.GetBytes(jsonSize);
 
-                // 리틀엔디안일 경우 빅엔디안으로 뒤집기
                 if (BitConverter.IsLittleEndian)
                 {
                     Array.Reverse(totalSizeBytes);
                     Array.Reverse(jsonSizeBytes);
                 }
 
-                // 헤더 생성: 전체 크기 (4바이트) + JSON 크기 (4바이트)
                 byte[] header = new byte[8];
                 Buffer.BlockCopy(totalSizeBytes, 0, header, 0, 4);
                 Buffer.BlockCopy(jsonSizeBytes, 0, header, 4, 4);
 
-                // 전송할 전체 데이터 패키지 생성
                 using (MemoryStream stream = new MemoryStream())
                 {
                     stream.Write(header, 0, header.Length);
@@ -402,15 +515,14 @@ namespace client_supervisor
 
                     byte[] fullMessage = stream.ToArray();
                     await _clientSocket.SendAsync(new ArraySegment<byte>(fullMessage), SocketFlags.None);
-                    //Console.WriteLine($"[전송 완료]: 전체 {totalSize} 바이트 (JSON: {jsonSize} 바이트, 바이너리: {fileBytes.Length} 바이트)");
-                    Console.WriteLine($"[Send] Protocol : {item.Protocol}");
+                    Console.WriteLine($"[Send] Protocol : {item.Protocol}, Total Size: {fullMessage.Length} bytes (Header: 8, JSON: {jsonSize}, Binary: {fileBytes.Length})");
                 }
                 return true;
             }
             catch (SocketException ex)
             {
                 OnErrorOccurred($"전송 오류: {ex.Message}");
-                Disconnect(); // 전송 오류 시 연결 끊기
+                Disconnect();
             }
             catch (ObjectDisposedException)
             {
@@ -422,15 +534,15 @@ namespace client_supervisor
                 OnErrorOccurred($"예기치 않은 전송 오류: {ex.Message}");
                 Disconnect();
             }
+            finally
+            {
+                _sendLock.Release();
+            }
             return false;
         }
 
-        /// <summary>
-        /// 서버와의 연결을 끊고 자원을 해제합니다.
-        /// </summary>
         public void Disconnect()
         {
-            // 수신 작업을 취소
             _receiveCts?.Cancel();
 
             if (_clientSocket != null)
@@ -439,13 +551,13 @@ namespace client_supervisor
                 {
                     if (_clientSocket.Connected)
                     {
-                        _clientSocket.Shutdown(SocketShutdown.Both); // 송수신 모두 종료
+                        _clientSocket.Shutdown(SocketShutdown.Both);
                     }
-                    _clientSocket.Close(); // 소켓 닫기
-                    _clientSocket.Dispose(); // 소켓 자원 해제
-                    _clientSocket = null; // 참조 해제
+                    _clientSocket.Close();
+                    _clientSocket.Dispose();
+                    _clientSocket = null;
                     Console.WriteLine("서버와의 연결이 끊어졌습니다.");
-                    OnConnectionStatusChanged(false); // 연결 상태 변경 이벤트 발생
+                    OnConnectionStatusChanged(false);
                 }
                 catch (SocketException ex)
                 {
@@ -456,17 +568,32 @@ namespace client_supervisor
                     OnErrorOccurred($"예기치 않은 연결 해제 오류: {ex.Message}");
                 }
             }
-            _receiveCts?.Dispose(); // CancellationTokenSource 자원 해제
+            _receiveCts?.Dispose();
             _receiveCts = null;
+
+            _currentMessageBuffer?.Dispose();
+            _currentMessageBuffer = new MemoryStream();
+            _currentState = ReceiveState.WaitingForHeader;
+            _totalMessageSize = 0;
+            _jsonSize = 0;
+
+            foreach (var tcs in _pendingResponses.Values)
+            {
+                tcs.TrySetException(new OperationCanceledException("연결이 끊어져 요청이 취소되었습니다."));
+            }
+            _pendingResponses.Clear();
+            // 모든 락을 강제로 해제하여 다음 연결 시 락이 걸려있지 않도록 합니다.
+            while (_sendLock.CurrentCount < 1)
+            {
+                _sendLock.Release();
+            }
         }
 
-        // 이벤트 발생 도우미 메서드 (null 체크)
         protected virtual void OnConnectionStatusChanged(bool isConnected)
         {
             ConnectionStatusChanged?.Invoke(this, isConnected);
         }
 
-        // 통합 데이터 수신 이벤트 발생 도우미 메서드
         protected virtual void OnDataReceived(DataReceivedEventArgs e)
         {
             DataReceived?.Invoke(this, e);
@@ -477,26 +604,22 @@ namespace client_supervisor
             ErrorOccurred?.Invoke(this, errorMessage);
         }
 
-        // IDisposable 구현: 객체 소멸 시 자원 해제 보장
         public void Dispose()
         {
-            Disconnect(); // Dispose 호출 시 연결 해제
-            GC.SuppressFinalize(this); // 파이널라이저가 다시 호출되는 것을 방지
+            Dispose(true);
+            GC.SuppressFinalize(this);
         }
 
         protected virtual void Dispose(bool disposing)
         {
             if (disposing)
             {
-                // 관리되는 자원 해제
-                Disconnect(); // Dispose 호출 시 연결 해제
+                Disconnect();
                 _currentMessageBuffer?.Dispose();
                 _currentMessageBuffer = null;
             }
-            // 비관리되는 자원 해제 (여기서는 해당 없음)
         }
 
-        // 파이널라이저 (Dispose가 호출되지 않았을 경우를 대비)
         ~TcpClientService()
         {
             Dispose(false);
