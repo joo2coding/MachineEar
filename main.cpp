@@ -1,9 +1,15 @@
 #include "common.h"   // 공용 구조체, 상수, 타입 등 선언된 헤더
+#include <iomanip> // setw, se
+#include <fcntl.h>     // _O_U8TEXT
 
+
+
+
+vector<ConnInfo> list_conninfo;
 
 
 // 수신
-WorkItem recv_parse(SOCKET clientSock, vector<unsigned char>& buf_recv)
+WorkItem recv_parse(SOCKET& clientSock, vector<unsigned char>& buf_recv)
 {
     while (true)  // 이 클라이언트와 계속 통신을 반복
     {
@@ -32,6 +38,8 @@ WorkItem recv_parse(SOCKET clientSock, vector<unsigned char>& buf_recv)
         memcpy(&len_json, &buf_recv[4], sizeof(uint32_t));
         len_json = ntohl(len_json);
 
+
+
         // 파일(바이너리) 데이터 길이 계산 (전체-JSON)
         uint32_t len_file = len_total - len_json;
 
@@ -44,18 +52,30 @@ WorkItem recv_parse(SOCKET clientSock, vector<unsigned char>& buf_recv)
         // [본문] 파일 데이터 추출 (JSON 다음부터 파일 길이만큼)
         vector<unsigned char> payload(buf_recv.begin() + 8 + len_json, buf_recv.begin() + 8 + len_total);
 
+
         // 버퍼에서 방금 처리한 부분(헤더+본문) 삭제
         size_t offeset = 8 + len_total;
         buf_recv = vector<unsigned char>(buf_recv.begin() + offeset, buf_recv.end());
+        
 
         try
         {
             // 수신 JSON을 파싱해서 구조화
             json recv_json = json::parse(jsonStr);
             string protocol = recv_json["PROTOCOL"]; // 프로토콜 값 추출
-            cout << "[Recv] Protocol : " << protocol << endl;
 
-            return WorkItem({ clientSock, protocol, jsonStr, payload });
+            wstring ws = Utf8ToUtf16(jsonStr);
+            //cout << "[Recv] Protocol : " << protocol << endl;
+            //cout << endl;
+
+            //cout << "[Recv] :" << jsonStr << endl;
+           
+            wcout << L"[Recv] Recv Message : " << ws << endl;
+            cout << "-----------------------------------------------------------------------------------------" << endl;
+          
+
+
+            return WorkItem({ clientSock, protocol, recv_json, payload });
         }
         catch (const exception& e)   // JSON 파싱 등 예외 발생 시
         {
@@ -66,21 +86,23 @@ WorkItem recv_parse(SOCKET clientSock, vector<unsigned char>& buf_recv)
 }
 
 // 송신
-void send_workitem(SOCKET clientSock, WorkItem & send_item)
+void send_workitem(WorkItem& item)
 {
-    send_item.json_conv["PROTOCOL"] = send_item.protocol; // 응답 JSON에 프로토콜 추가
+    item.json_conv["PROTOCOL"] = item.protocol; // 응답 JSON에 프로토콜 추가
 
-    string sendStr = send_item.json_conv.dump(); // JSON 객체를 문자열로 변환
+    string sendStr = item.json_conv.dump(); // JSON 객체를 문자열로 변환
     uint32_t len_json = (uint32_t)sendStr.size();         // 응답 JSON의 길이
     uint32_t len_total = 0;
-    if (!send_item.payload.empty())             // 파일 데이터가 있으면
+    if (!item.payload.empty())             // 파일 데이터가 있으면
     {
-        len_total = len_json + send_item.json_conv["__META__"]["SIZE"];
+        len_total = len_json + item.payload.size();
     }
     else                                        // 파일 없으면 JSON 길이만
     {
         len_total = len_json;
     }
+
+
     uint32_t net_len_total = htonl(len_total);   // 네트워크 바이트 순서 변환
     uint32_t net_len_json = htonl(len_json);
 
@@ -98,29 +120,35 @@ void send_workitem(SOCKET clientSock, WorkItem & send_item)
     // JSON 문자열 추가(UTF-8)
     sendBuf.insert(sendBuf.end(), sendStr.begin(), sendStr.end());
 
+
+
     // 파일 데이터(있으면) 추가
-    if (!send_item.payload.empty())
+    if (!item.payload.empty())
     {
-        sendBuf.insert(sendBuf.end(), send_item.payload.begin(), send_item.payload.end());
-    }
+        sendBuf.insert(sendBuf.end(), item.payload.begin(), item.payload.end());
+    }   
 
     // 클라이언트에게 데이터 송신
-    send(clientSock, sendBuf.data(), sendBuf.size(), 0);
-    cout << "[Send] Send Message : " << sendStr << endl;
+    send(item.socket, sendBuf.data(), sendBuf.size(), 0);
+ 
+    wstring ws = Utf8ToUtf16(sendStr);
+ 
+	wcout << L"[Send] Send Message : " << ws << endl;
+    cout << "-----------------------------------------------------------------------------------------" << endl;
 }
-
-WorkItem process_protocol(WorkItem& recv_item) 
-{
-    return protocol_recv(recv_item);
-}
-
-
 
 // 클라이언트별 스레드
 void client_thread(SOCKET clientSock)
 {
+    cout << "-----------------------------------------------------" << endl;
     cout << "[*] 새 클라이언트 접속! : " << clientSock << endl;
     vector<unsigned char> buf_recv; // 여러 번 받은 데이터를 누적 저장할 버퍼
+
+    ConnInfo new_conn;
+    new_conn.socket = clientSock;
+    new_conn.client_id = -1;
+
+    list_conninfo.push_back(new_conn);
 
     while (true)
     {
@@ -133,27 +161,50 @@ void client_thread(SOCKET clientSock)
 		}
     
         // 프로토콜별로 처리 (proc_protocol.cpp의 protocol_recv 함수 호출)
-        WorkItem send_item = process_protocol(recv_item);
+        WorkItem send_item = protocol_recv(recv_item);
 
         // 3. 송신
-        send_workitem(clientSock, send_item);
+        send_workitem(send_item);
     }
+    for (int i = 0; i < list_conninfo.size(); i++)
+    {
+        if ((list_conninfo[i].socket = clientSock) && (list_conninfo[i].client_id == 0))
+        {
+            Log_connect(list_conninfo[i].num_pin, false);
+            break;
+        }
+    }
+    
     closesocket(clientSock); // 통신이 끝나면 소켓 닫기
+
+    cout << "-----------------------------------------------------------------------------------------" << endl;
     cout << "[*] 클라이언트 연결 종료.\n";
+    cout << endl;
+    for (int i = 0; i < list_conninfo.size(); i++) {
+        if (list_conninfo[i].socket == clientSock) {
+            list_conninfo.erase(list_conninfo.begin() + i);
+            break;
+        }
+    }
 }
+
+void refresh_conninfo() 
+{
+    cout << endl;
+    cout << "현재 접속 리스트" << endl;
+    cout << endl;
+    for (ConnInfo conn : list_conninfo) 
+    {
+        cout << "종류 : " << conn.client_id << " - 소켓 : " << conn.socket << endl;
+    }
+}
+
 
 // 서버 메인 함수
 int main()
 {
-    // (DB 연결 필요하면 아래 주석 해제)
-    /*
-    if (!db_connect("localhost", "root", "비밀번호", "DB이름"))
-    {
-        cerr << "DB 연결 실패" << endl;
-        return 1;
-    }
-    */
-
+    SetConsoleOutputCP(CP_UTF8);          // 필수!
+    std::locale::global(std::locale(""));
     // Winsock 라이브러리 초기화
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
@@ -215,9 +266,6 @@ int main()
 
     closesocket(serverSock); // 서버 소켓 닫기
     WSACleanup();           // Winsock 정리
-
-    // (DB 연결 사용했다면 여기서 종료)
-    //db_disconnect();
 
     return 0;
 }
