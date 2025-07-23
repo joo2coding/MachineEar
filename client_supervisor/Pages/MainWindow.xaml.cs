@@ -49,7 +49,11 @@ namespace client_supervisor
 
         // 이상상황 목록
         public ObservableCollection<AnomalyLog> List_Daily_Anomaly { get; set; } = new ObservableCollection<AnomalyLog>();
+<<<<<<< HEAD
         public AnomalyLog CurrentClickedAnomaly;
+=======
+        Window_Log_TotalAnomaly? log_total;
+>>>>>>> origin/Boeun_Supervisor
 
         // 지도 목록
         public ObservableCollection<MapSector> MapSectors { get; set; } = new ObservableCollection<MapSector>();
@@ -803,6 +807,7 @@ namespace client_supervisor
                     pb_state_active.Content = clickedPin.State_Active ? "정지" : "작동";
                     pb_state_active.IsEnabled = true;
 
+<<<<<<< HEAD
                     pb_proc_commit.IsEnabled = true;
                     pb_proc_init.IsEnabled = true;
 
@@ -825,6 +830,23 @@ namespace client_supervisor
                             this.CurrentClickedAnomaly = log;
 
                             break;
+=======
+                    // 이상발생 목록 확인 후 가장 최신 핀 정보로 업데이트, 없으면 초기화
+                    if (clickedPin.State_Anomaly > 0)
+                    {
+                        for (int i = this.List_Daily_Anomaly.Count - 1; i >= 0; i--)
+                        {
+                            //if (this.List_Daily_Anomaly[i].Idx_Pin == this.idx_map)
+                            //{
+                            //    AnomalyLog log = this.List_Daily_Anomaly[i];
+
+                            //    label_start_datetime.Content = log.Time_Start.ToString("F");
+                            //    label_proc_datetime.Content = log.Time_End.ToString("F");
+                            //    RadioGroupChangeState();
+                            //    textbox_proc_manager.Text = log.Worker;
+                            //    textbox_proc_memo.Text = log.Memo;
+                            //}
+>>>>>>> origin/Boeun_Supervisor
                         }
                     }
                 }
@@ -968,22 +990,59 @@ namespace client_supervisor
         // 이전 기록 창을 띄우기 위한 
         private void pb_log_Click(object sender, RoutedEventArgs e)
         {
-            Window_Log_TotalAnomaly log_total = new Window_Log_TotalAnomaly();
-            log_total.Req_Log_Date += this.req_log_total_datetime;
-            if (log_total.ShowDialog() == true)
-            {
+            this.log_total = new Window_Log_TotalAnomaly(this.List_Kind_Error, this.List_Kind_Anomaly);
 
+            this.log_total.Req_Log_Date += this.req_log_total_datetime;
+            if (this.log_total.ShowDialog() == true)
+            {
+                Console.WriteLine("이전 기록 창 닫힘");
+
+                WorkItem item = new WorkItem();
+                item.Protocol = "1-2-3";
+
+                item.JsonData["DATE_REQ"] = this.log_total.MyCalendar.SelectedDate.ToString();
+
+                // 수정된 목록을 JArray로 변환하여 JsonData에 추가
+                JArray arr = new JArray();
+                for (int i = 0; i < this.log_total.List_update.Count; i++)
+                {
+                    JObject modifiedItem = new JObject
+                    {
+                        ["NUM_EVENT"] = this.log_total.List_update[i].Idx,
+                        ["MANAGER_PROC"] = this.log_total.List_update[i].Worker,
+                        ["MEMO"] = this.log_total.List_update[i].Memo,
+                        ["CODE_ANOMALY"] = this.log_total.List_update[i].Code_Anomaly
+                    };
+                    arr.Add(modifiedItem);
+                }
+                item.JsonData["MODIFIED"] = arr;
+
+
+                JArray arr_remove = new JArray();
+                for (int i = 0; i < this.log_total.List_remove.Count; i++)
+                {
+                    arr_remove.Add(this.log_total.List_remove[i]);
+                }
+                item.JsonData["REMOVED"] = arr_remove;
+                
+                this.ExcuteCommand_Send(item); // 전송
+            }
+
+            if(this.log_total != null)
+            {
+                this.log_total.Close();
+                this.log_total = null;
             }
         }
 
         // 이전 기록 확인에서 날짜가 변경될 때 마다 창에서 값을 받아서 서버로 전송
-        private void req_log_total_datetime(object sender, DateTime selected)
+        private async void req_log_total_datetime(object sender, DateTime selected)
         {
             WorkItem item = new WorkItem();
             item.Protocol = "1-2-2";
             item.JsonData["DATE_REQ"] = selected.ToString();
-
-            this.ExcuteCommand_Send(item);
+            DataReceivedEventArgs send_122 = await this.ExcuteCommand_SendAndWait(item, item.Protocol);
+            this.Act_SendAndRecv(send_122);
         }
 
         // 세부사항 입력 후 적용 클릭 시
