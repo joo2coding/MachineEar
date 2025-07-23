@@ -32,28 +32,16 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <DataGridTemplateColumn Header="순서변경">
-                    <DataGridTemplateColumn.HeaderStyle>
+                <DataGridTextColumn Header="지도번호" Binding="{Binding Num_Map}" IsReadOnly="True">
+                    <DataGridTextColumn.HeaderStyle>
                         <Style TargetType="{x:Type DataGridColumnHeader}">
                             <Setter Property="HorizontalContentAlignment" Value="Center"/>
                             <Setter Property="VerticalContentAlignment" Value="Center"/>
                         </Style>
-                    </DataGridTemplateColumn.HeaderStyle>
-                    <DataGridTemplateColumn.CellTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Button Content="▲" Margin="2"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center"
-                                        Command="{Binding UpCommand}" CommandParameter="{Binding}" />
-                                <Button Content="▼" Margin="2"
-                                        HorizontalAlignment="Center" VerticalAlignment="Center"
-                                        Command="{Binding DownCommand}" CommandParameter="{Binding}" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </DataGridTemplateColumn.CellTemplate>
-                </DataGridTemplateColumn>
+                    </DataGridTextColumn.HeaderStyle>
+                </DataGridTextColumn>
 
-                <DataGridTextColumn Header="인덱스" Binding="{Binding Idx}" IsReadOnly="True">
+                <DataGridTextColumn Header="인덱스" Binding="{Binding Idx}">
                     <DataGridTextColumn.HeaderStyle>
                         <Style TargetType="{x:Type DataGridColumnHeader}">
                             <Setter Property="HorizontalContentAlignment" Value="Center"/>

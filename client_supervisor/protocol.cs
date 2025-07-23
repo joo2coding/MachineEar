@@ -314,10 +314,28 @@ namespace client_supervisor
                     PosY = obj_pin["POS_Y"].Value<double>(),
                     MAC = obj_pin["MAC"].Value<string>(),
                     Date_Reg = obj_pin["DATE_REG"].Value<DateTime>(),
-                    State_Anomaly = obj_pin["STATE_ANOMALY"].Value<int>(),
                     State_Active = obj_pin["STATE_ACTIVE"].Value<bool>(),
                     State_Connect = obj_pin["STATE_CONNECT"].Value<bool>()
                 };
+
+                // 핀 색상 지정
+                // 장치가 연결되지 않으면
+                if (!pin_new.State_Connect)
+                {
+                    pin_new.ChangeColorMode(STATE_COLOR.OFFLINE);
+                }
+                else
+                {
+                    // 온라인 상태, 작업중이 아닐 경우
+                    if (!pin_new.State_Active)
+                    {
+                        pin_new.ChangeColorMode(STATE_COLOR.STANDBY);
+                    }
+                    else
+                    {
+                        pin_new.ChangeColorMode(STATE_COLOR.WORKING);
+                    }
+                }
 
                 this.PinAddToCanvas(pin_new, true);
             }
@@ -328,10 +346,45 @@ namespace client_supervisor
                 Console.WriteLine($"핀 이름 {pin.Name} - 번호 : {pin.Idx} - 지도번호 : {pin.MapIndex} - MAC : {pin.MAC}");
             }
         }
-        // 1-2-0 : 이상상황 발생한 핀에 대하여 데이터 수신
+        // 1-2-0 : 이상상황 발생한 핀에 대하여 데이터 수신, 클라이언트가 요청하면 일일 전체 목록 요청 후 수신(처음 접속할 때만 요청)
         private void Recv_Mic_State_Anomaly(WorkItem item)
         {
             Console.WriteLine($"[{item.Protocol}] 이상 상황 발생 데이터 수신");
+
+            JArray arr_data = item.JsonData["DATA"] as JArray;
+
+            foreach (JObject obj in arr_data)
+            {
+                int idx = obj["NUM_EVENT"].Value<int>();
+                ClientPin pin = new ClientPin();
+                pin.Idx = obj["NUM_PIN"].Value<int>();
+
+                DateTime time_start = obj["DATE_START"].Value<DateTime>();
+                int code = obj["CODE_ERROR"].Value<int>();
+
+                // 인스턴스 생성
+                AnomalyLog anomaly = new AnomalyLog(idx, pin, time_start, code);
+
+                // 전역 목록에 추가
+                this.List_Daily_Anomaly.Add(anomaly);
+            }
+
+            // 핀 색상 업데이트
+            for (int i = 0; i < this.PinList.Count; i ++)
+            {
+                // 온라인 상태가 아니면 패스
+                if (this.PinList[i].State_Connect == false) continue;
+
+                for (int j = 0; j < this.List_Daily_Anomaly.Count; j ++)
+                {
+                    // 최신으로부터 수신하여 현재 연결된 핀과 같은 핀이 존재할 경우, 색상 변경
+                    if (this.List_Daily_Anomaly[j].Pin == this.PinList[i] && this.List_Daily_Anomaly[i].Code_Anomaly == 1)
+                    {
+                        this.PinList[i].ChangeColorMode(STATE_COLOR.ANOMALY);
+                        break;
+                    }
+                }
+            }
         }
         // 1-2-2 : 특정 요청일에 대하여 전체 기록 수신
         private void Recv_Req_Event_List(WorkItem item)
@@ -365,14 +418,13 @@ namespace client_supervisor
             }
 
             // 서버에서 받은 목록에 파일이 없는 경우 삭제
-            this.compare_maplist_delete(this.MapSectors, mapSectors_recv, false);
+            this.Compare_Maplist(this.MapSectors, mapSectors_recv);
 
             // 파일이 없는 경우, 즉 path와 size가 없는 경우에는 파일 요청
-            this.Map_Add = this.compare_maplist_add(this.MapSectors, mapSectors_recv, false);
-            
-            // 지도 메타데이터 저장
-            //this.MapSectors = mapSectors_recv;       // 수신받은 목록을 공통 사용목록에 주소 저장
-            if(this.Map_Add.Count > 0) this.save_maplist();
+            this.Add_Maplist(this.MapSectors, mapSectors_recv, false);
+
+            // NUM_MAP이 다 0이므로 새롭게 다시 배정
+            this.resign_num_map(this.MapSectors, mapSectors_recv);
         }
         // 1-3-3 : 요청한 지도 번호에 따른 파일 수신
         private void Recv_Req_Map_Data(WorkItem item)

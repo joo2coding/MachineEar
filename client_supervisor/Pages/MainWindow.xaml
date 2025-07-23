@@ -30,6 +30,7 @@
         </Menu>
 
         <Grid x:Name="grid_frame" Margin="5,5,5,5">
+            
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"></ColumnDefinition>
                 <ColumnDefinition Width="0.2*"></ColumnDefinition>
@@ -39,6 +40,17 @@
                 <RowDefinition Height="0.05*"></RowDefinition>
                 <RowDefinition Height="*"></RowDefinition>
             </Grid.RowDefinitions>
+
+            <Popup x:Name="Popup_Connect" Placement="Center" AllowsTransparency="True"
+               StaysOpen="True" IsOpen="False" PopupAnimation="Fade">
+                <Border BorderBrush="LightGray" BorderThickness="1" Background="White" CornerRadius="5" Padding="20">
+                    <StackPanel VerticalAlignment="Center">
+                        <Label x:Name="Popup_Content" Content="서버 연결 중..." FontSize="16" Margin="0,0,0,10" HorizontalAlignment="Center"/>
+                        <ProgressBar x:Name ="Popup_Progress" IsIndeterminate="True" Width="200" Height="20" Margin="0,0,0,20"/>
+                        <Button x:Name ="Popup_Pb" Content="취소" Click="DisconnTCP_Click" Width="80" Height="30" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Popup>
 
             <Grid Grid.Row="0" Grid.Column="0">
                 <StackPanel Orientation="Vertical" VerticalAlignment="Center">
@@ -114,9 +126,9 @@
                 </Border>
 
                 <Border BorderBrush="Gray" BorderThickness="1" Grid.Row="1" Margin="0,5,5,0">
-                    <DataGrid x:Name="table_ev_curr" AutoGenerateColumns="False" CanUserAddRows="False">
+                    <DataGrid x:Name="table_ev_curr" AutoGenerateColumns="False" CanUserAddRows="False" ItemsSource="{Binding List_Daily_Anomaly}">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="상태" Binding="{Binding Path=time_start}" Width="0.075*">
+                            <DataGridTextColumn Header="No." Binding="{Binding Path=time_start}" Width="0.075*">
                                 <DataGridTextColumn.HeaderStyle>
                                     <Style TargetType="{x:Type DataGridColumnHeader}">
                                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -125,7 +137,16 @@
                                 </DataGridTextColumn.HeaderStyle>
                             </DataGridTextColumn>
 
-                            <DataGridTextColumn Header="발생시간" Binding="{Binding Path=time_start}" Width="0.2*">
+                            <DataGridTextColumn Header="발생일시" Binding="{Binding Path=time_start}" Width="0.2*">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="{x:Type DataGridColumnHeader}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="처리일시" Binding="{Binding Path=time_end}" Width="0.2*">
                                 <DataGridTextColumn.HeaderStyle>
                                     <Style TargetType="{x:Type DataGridColumnHeader}">
                                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -143,7 +164,7 @@
                                 </DataGridTextColumn.HeaderStyle>
                             </DataGridTextColumn>
 
-                            <DataGridTextColumn Header="참고사항" Binding="{Binding Path=time_start}" Width="0.6*">
+                            <DataGridTextColumn Header="발생원인" Binding="{Binding Path=time_start}" Width="0.2*">
                                 <DataGridTextColumn.HeaderStyle>
                                     <Style TargetType="{x:Type DataGridColumnHeader}">
                                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -249,6 +270,7 @@
                                                 <RowDefinition Height="*"/>
                                                 <RowDefinition Height="*"/>
                                                 <RowDefinition Height="*"/>
+                                                <RowDefinition Height="*"/>
                                                 <RowDefinition Height="8*"/>
                                             </Grid.RowDefinitions>
 
@@ -272,23 +294,31 @@
                                             </Border>
 
                                             <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0.5" Grid.Row="2" Grid.Column="0">
-                                                <Label x:Name="content_proc_kind"  Content="이상종류" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                                <Label x:Name="content_proc_error"  Content="발생원인" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
                                             </Border>
                                             <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="2" Grid.Column="1">
-                                                <WrapPanel x:Name="wrap_kind_anomaly" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"></WrapPanel>
+
+                                                <Label x:Name="label_proc_kind"  VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
                                             </Border>
 
                                             <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0.5" Grid.Row="3" Grid.Column="0">
-                                                <Label x:Name="content_proc_manager"  Content="처리자" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                                <Label x:Name="content_proc_kind"  Content="처리종류" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
                                             </Border>
                                             <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="3" Grid.Column="1">
-                                                <TextBox x:Name="textbox_proc_manager" TextWrapping="NoWrap" VerticalAlignment="Center" IsEnabled="False"/>
+                                                <WrapPanel x:Name="wrap_kind_anomaly" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"></WrapPanel>
                                             </Border>
 
                                             <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0.5" Grid.Row="4" Grid.Column="0">
-                                                <Label x:Name="content_proc_memo"  Content="메모" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                                <Label x:Name="content_proc_manager"  Content="처리자" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
                                             </Border>
                                             <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="4" Grid.Column="1">
+                                                <TextBox x:Name="textbox_proc_manager" TextWrapping="NoWrap" VerticalAlignment="Center" IsEnabled="False"/>
+                                            </Border>
+
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0.5" Grid.Row="5" Grid.Column="0">
+                                                <Label x:Name="content_proc_memo"  Content="메모" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                            </Border>
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="5" Grid.Column="1">
                                                 <TextBox x:Name="textbox_proc_memo" TextWrapping="Wrap" IsEnabled="False"/>
                                             </Border>
                                         </Grid>
@@ -296,7 +326,7 @@
 
                                     <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
                                         <Button x:Name="pb_proc_init" Content="초기화" Width="50" Height="25" Margin="0,0,5,0" IsEnabled="False" Click="pb_proc_init_Click"/>
-                                        <Button x:Name="pb_proc_commit" Content="적용" Width="50" Height="25" IsEnabled="False"/>
+                                        <Button x:Name="pb_proc_commit" Content="적용" Width="50" Height="25" IsEnabled="False" Click="pb_proc_commit_Click"/>
                                     </StackPanel>
                                 </Grid>
                             </GroupBox>

@@ -19,6 +19,8 @@ using System.Windows.Shapes;
 
 namespace client_supervisor
 {
+
+    public enum STATE_COLOR { OFFLINE, STANDBY, WORKING, ANOMALY }
     /// <summary>
     /// UserControl_Pin.xaml에 대한 상호 작용 논리
     /// </summary>
@@ -128,20 +130,6 @@ namespace client_supervisor
             }
         }
 
-        private int _state_anomaly;
-        public int State_Anomaly
-        {
-            get { return _state_anomaly; }
-            set
-            {
-                if (_state_anomaly != value)
-                {
-                    _state_anomaly = value;
-                    OnPropertyChanged(nameof(State_Anomaly));
-                }
-            }
-        }
-
         private string _name_manager;
         public string Name_Manager
         {
@@ -184,8 +172,8 @@ namespace client_supervisor
             }
         }
 
-        private int _mode_color;
-        public int Mode_Color
+        private STATE_COLOR _mode_color;
+        public STATE_COLOR Mode_Color
         {
             get { return _mode_color; }
             set
@@ -269,23 +257,27 @@ namespace client_supervisor
             }
         }
 
-        public void ChangeColorMode(int mode)
+        public void ChangeColorMode(STATE_COLOR mode)
         {
-            // mode 0: 기본 색상, mode 1: 비활성화 색상, mode 2: 이상 상태 색상
+            // mode 0: 오프라인 상태, mode 1: 대기 상태 mode 2 : 작업중, mode 3: 이상 상태 색상
             this.Mode_Color = mode;
             switch (mode)
             {
-                case 0:
+                case STATE_COLOR.OFFLINE:
                     ChangeStrokeColor("Black");
-                    ChangeFillColor("DarkBlue");
+                    ChangeFillColor("DarkGray");
                     break;
-                case 1:
+                case STATE_COLOR.STANDBY:
                     ChangeStrokeColor("Black");
-                    ChangeFillColor("#FFB0B0B0");
+                    ChangeFillColor("Green");
                     break;
-                case 2:
+                case STATE_COLOR.WORKING:
                     ChangeStrokeColor("Black");
-                    ChangeFillColor("#FFFFA0A0");
+                    ChangeFillColor("Yellow");
+                    break;
+                case STATE_COLOR.ANOMALY:
+                    ChangeStrokeColor("Black");
+                    ChangeFillColor("Red");
                     break;
                 default:
                     Console.WriteLine("Invalid mode. Please use 0, 1, or 2.");
@@ -334,7 +326,6 @@ namespace client_supervisor
             copy.PosY = this.PosY;
             copy.MAC = this.MAC;
             copy.Date_Reg = this.Date_Reg;
-            copy.State_Anomaly = this.State_Anomaly;
             copy.Name_Manager = this.Name_Manager;
             copy.Name_Location = this.Name_Location;
             copy.State_Active = this.State_Active;
@@ -390,7 +381,6 @@ namespace client_supervisor
                    x.PosX == y.PosX &&
                    x.PosY == y.PosY &&
                    x.Date_Reg == y.Date_Reg &&
-                   x.State_Anomaly == y.State_Anomaly &&
                    x.State_Active == y.State_Active &&
                    x.Mode_Color == y.Mode_Color &&
                    x.IsSelected == y.IsSelected &&

@@ -62,7 +62,6 @@ namespace client_supervisor
                     PosY = m.PosY,
                     MAC = m.MAC,
                     Date_Reg = m.Date_Reg,
-                    State_Anomaly = m.State_Anomaly,
                     Name_Manager = m.Name_Manager,
                     Mode_Color = m.Mode_Color,
                     IsSelected = false,
@@ -104,7 +103,6 @@ namespace client_supervisor
                         PosY = m.PosY,
                         MAC = m.MAC,
                         Date_Reg = m.Date_Reg,
-                        State_Anomaly = m.State_Anomaly,
                         Name_Manager = m.Name_Manager,
                         Mode_Color = m.Mode_Color,
                         IsSelected = false

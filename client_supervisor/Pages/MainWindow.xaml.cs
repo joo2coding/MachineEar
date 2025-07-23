@@ -22,6 +22,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using System.Windows.Media.Effects; 
+
 
 namespace client_supervisor
 {
@@ -47,6 +49,7 @@ namespace client_supervisor
 
         // 이상상황 목록
         public ObservableCollection<AnomalyLog> List_Daily_Anomaly { get; set; } = new ObservableCollection<AnomalyLog>();
+        public AnomalyLog CurrentClickedAnomaly;
 
         // 지도 목록
         public ObservableCollection<MapSector> MapSectors { get; set; } = new ObservableCollection<MapSector>();
@@ -60,6 +63,7 @@ namespace client_supervisor
         public List<ClientPin> PinList_Modified { get; set; } = new List<ClientPin>();
         public List<ClientPin> PinList_Add { get; set; } = new List<ClientPin>();
         public List<int> PinList_Remove { get; set; } = new List<int>();
+        public ClientPin? CurrentClickedPin;
 
         // 등록되지 않은 MAC 주소 목록
         public ObservableCollection<string> MACList { get; set; } = new ObservableCollection<string>();
@@ -130,30 +134,12 @@ namespace client_supervisor
                 HashSet<MapSector> mapRecvHashSet = new HashSet<MapSector>(MapSectors_recv, _comparer);
 
                 // 수정 및 삭제
-                foreach (MapSector originalMap in this.MapSectors)
-                {
-                    MapSector correspondingMapInRecv = mapRecvHashSet.FirstOrDefault(m => _comparer.Equals(m, originalMap));
-
-                    if (correspondingMapInRecv == null)
-                    {
-                        // correspondingMapInRecv가 null이면, originalMap은 최신 목록에 없습니다. (삭제됨)
-                        this.Map_Removed.Add(originalMap.Idx);
-                        Console.WriteLine($"  [삭제 감지] Idx: {originalMap.Idx}, Name: {originalMap.Name_Map}");
-                    }
-                    else
-                    {
-                        // 식별자는 같지만, 내용이 다른 경우 (수정됨)
-                        if (!_comparer.AreContentsEqual(originalMap, correspondingMapInRecv))
-                        {
-                            this.Map_Modified.Add(correspondingMapInRecv); // 최신 수정된 맵 추가
-                            Console.WriteLine($"  [수정 감지] Idx: {originalMap.Idx}, Original Name: {originalMap.Name_Map}, New Name: {correspondingMapInRecv.Name_Map}");
-                        }
-                    }
-                }
+                this.Compare_Maplist(this.MapSectors, MapSectors_recv);
 
                 // 2. 새로 추가된 파일 처리
                 Console.WriteLine($"\n2. 새로 추가된 파일 처리 시도:");
-                this.Map_Add = compare_maplist_add(this.MapSectors, MapSectors_recv); // 새로 추가된 맵 목록을 가져옴, NUM_MAP이 없음, 0으로 처리되어있음
+                this.Add_Maplist(this.MapSectors, MapSectors_recv);
+
 
                 // 지도 목록 수정 요청
                 item.Protocol = "1-3-1";
@@ -171,11 +157,11 @@ namespace client_supervisor
 
 
                     JObject obj = new JObject();
-                    obj["NAME"] = System.IO.Path.GetFileName(map_add.Path);
+                    obj["NAME"] = System.IO.Path.GetFileName(map_add.Path_Origin);
                     obj["SIZE"] = map_add.SizeB;
 
                     item.JsonData["__META__"] = obj;
-                    item.BinaryData = File.ReadAllBytes(map_add.Path);
+                    item.BinaryData = File.ReadAllBytes(map_add.Path_Origin);
 
                     await this.ExcuteCommand_Send(item);
                 }
@@ -218,6 +204,8 @@ namespace client_supervisor
         // 서버와 연결 버튼 클릭 시 실행
         private void ConnTCP_Click(object sender, RoutedEventArgs e)
         {
+            Popup_Connect.IsOpen = true;
+
             // 소켓 생성 및 초기화
             this.InitializeCustomComponents();
 
@@ -235,6 +223,8 @@ namespace client_supervisor
             this.List_Kind_Error.Clear();
             this.PinList.Clear();
             this.MapSectors.Clear();        // 도면 초기화
+
+            Popup_Connect.IsOpen = false;
         }
         private void EditTCP_Click(object sender, RoutedEventArgs e)
         {
@@ -317,7 +307,6 @@ namespace client_supervisor
                 DataReceivedEventArgs send_130 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
                 this.Act_SendAndRecv(send_130);
 
-                Console.WriteLine($"추가 갯수 : {this.Map_Add.Count}");
                 // 추가해야하는 지도가 있다면 서버에 요청
                 foreach (MapSector map in this.Map_Add)
                 {
@@ -335,10 +324,16 @@ namespace client_supervisor
 
                 // 핀 목록 요청
                 send_item.Protocol = "1-1-0";
-                //await this.ExcuteCommand_Send(send_item);
                 DataReceivedEventArgs send_110 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
                 this.Act_SendAndRecv(send_110);
+
+                // 당일 이상 상황 목록 요청
+                send_item.Protocol = "1-2-0";
+                DataReceivedEventArgs send_120 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
+                this.Act_SendAndRecv(send_120);
             }
+
+            Popup_Connect.IsOpen = false;
         }
         // 서버 연결이 끊어졌을 때 실행되는 메서드
         private void OnDisconnectedFromServer()
@@ -436,6 +431,7 @@ namespace client_supervisor
             if (radioButton != null)
             {
                 //MessageBox.Show($"{radioButton.Content}이(가) 선택되었습니다.");
+                
             }
         }
         // 라디오 버튼 생성
@@ -461,6 +457,21 @@ namespace client_supervisor
                     radioButton.IsEnabled = state;  
                 }
             }
+        }
+        // 어떤 라디오버튼이 클릭되었는지에 대한 값 반환
+        private int RadioButtonChecked(WrapPanel wrapPanel)
+        {
+            int cnt = 1;
+            foreach(UIElement child in wrapPanel.Children)
+            {
+                RadioButton? radioButton = child as RadioButton;
+                if (radioButton != null)
+                {
+                    return cnt;
+                }
+                cnt++;
+            }
+            return 0;
         }
 
         public void ScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -578,7 +589,6 @@ namespace client_supervisor
                     PosY = actualY,
                     MAC = add_Pin.MAC_Selected,
                     Date_Reg = DateTime.Now,
-                    State_Anomaly = 1,
                     Name_Manager = add_Pin.TextBox_Manager.Text,
                     State_Connect = true
                 };
@@ -617,7 +627,7 @@ namespace client_supervisor
         private void PinAddToCanvas(ClientPin pin_new, bool add_list = false)
         {
             pin_new.AddHandler(ClientPin.PinClickedEvent, new RoutedEventHandler(ClientPin_PinClicked));    // 이벤트 핸들러 등록, 핀 클릭 시 이벤트 발생
-            pin_new.ChangeColorMode(1); // 기본 모드로 설정
+            pin_new.ChangeColorMode(STATE_COLOR.STANDBY); // 기본 모드로 설정
 
             Canvas.SetLeft(pin_new, pin_new.PosX);
             Canvas.SetTop(pin_new, pin_new.PosY);
@@ -767,17 +777,18 @@ namespace client_supervisor
         // 핀 클릭 이벤트 핸들러
         private void ClientPin_PinClicked(object sender, RoutedEventArgs e)
         {
-            ClientPin clickedPin = e.OriginalSource as ClientPin;
+            ClientPin? clickedPin = e.OriginalSource as ClientPin;
 
             if (clickedPin != null)
             {
                 // 핀 클릭 시 세부사항 패널 활성화
+                this.CurrentClickedPin = clickedPin;
+
                 label_data_pin.Content = clickedPin.Idx;
                 label_data_name.Content = clickedPin.Name_Pin;
                 label_data_map.Content = MapSectors.FirstOrDefault(sector => sector.Idx == clickedPin.MapIndex)?.Name_Map;
                 label_data_loc.Content = clickedPin.Name_Location;
                 label_data_manager.Content = clickedPin.Name_Manager;
-
 
                 // 해당 클라이언트가 접속하지 않았다면
                 if (!clickedPin.State_Connect)
@@ -792,21 +803,28 @@ namespace client_supervisor
                     pb_state_active.Content = clickedPin.State_Active ? "정지" : "작동";
                     pb_state_active.IsEnabled = true;
 
-                    // 이상발생 목록 확인 후 가장 최신 핀 정보로 업데이트, 없으면 초기화
-                    if (clickedPin.State_Anomaly > 0)
-                    {
-                        for (int i = this.List_Daily_Anomaly.Count - 1; i >= 0; i--)
-                        {
-                            if (this.List_Daily_Anomaly[i].Idx_Pin == this.idx_map)
-                            {
-                                AnomalyLog log = this.List_Daily_Anomaly[i];
+                    pb_proc_commit.IsEnabled = true;
+                    pb_proc_init.IsEnabled = true;
 
-                                label_start_datetime.Content = log.Time_Start.ToString("F");
-                                label_proc_datetime.Content = log.Time_End.ToString("F");
-                                RadioGroupChangeState();
-                                textbox_proc_manager.Text = log.Worker;
-                                textbox_proc_memo.Text = log.Memo;
-                            }
+                    // 이상발생 목록 확인 후 가장 최신 핀 정보로 업데이트, 없으면 초기화
+                    for (int i = 0; i < this.List_Daily_Anomaly.Count; i ++)
+                    {
+                        if (this.List_Daily_Anomaly[i].Pin == clickedPin)
+                        {
+                            AnomalyLog log = this.List_Daily_Anomaly[i];
+
+                            label_start_datetime.Content = log.Time_Start.ToString("F");
+                            label_proc_datetime.Content = log.Time_End.ToString("F");
+                            RadioGroupChangeState();
+                            textbox_proc_manager.Text = log.Worker;
+                            textbox_proc_memo.Text = log.Memo;
+
+                            label_proc_kind.Content = this.List_Kind_Anomaly[log.Code_Error].ToString();
+
+                            // 현재 클릭된 상황을 저장
+                            this.CurrentClickedAnomaly = log;
+
+                            break;
                         }
                     }
                 }
@@ -844,12 +862,15 @@ namespace client_supervisor
             label_data_state.ClearValue(ContentProperty);
             pb_state_active.Content = "";
             pb_state_active.IsEnabled = false;
+
+            pb_proc_commit.IsEnabled = false;
+            pb_proc_init.IsEnabled = false;
+
+            this.CurrentClickedPin = null;
         }
         // 상황 패널 초기화
         private void DeactiveDetailPanel(WrapPanel parentPanel)
         {
-            label_start_datetime.ClearValue(ContentProperty);
-            label_proc_datetime.ClearValue(ContentProperty);
             textbox_proc_memo.Text = "";
             textbox_proc_manager.Text = "";
             
@@ -879,11 +900,6 @@ namespace client_supervisor
             send_item.JsonData["STATE_ACTIVE"] = active;
 
             await this.ExcuteCommand_Send(send_item);
-        }
-
-        private void pb_proc_init_Click(object sender, RoutedEventArgs e)
-        {
-            DeactiveDetailPanel(wrap_kind_anomaly);
         }
         // 이미지 불러오기 메서드
         public void LoadImageSafely(string relativeImagePath)
@@ -968,6 +984,39 @@ namespace client_supervisor
             item.JsonData["DATE_REQ"] = selected.ToString();
 
             this.ExcuteCommand_Send(item);
+        }
+
+        // 세부사항 입력 후 적용 클릭 시
+        private void pb_proc_commit_Click(object sender, RoutedEventArgs e)
+        {
+            // 빈칸 채우지 않으면 적용 불가
+            int radio = RadioButtonChecked(wrap_kind_anomaly);
+
+            if (textbox_proc_manager.Text == "" || textbox_proc_memo.Text == "" || radio == 0)
+            {
+                MessageBox.Show("빈칸이 존재합니다.\n다시 입력해주세요.", "적용 불가");
+            }
+            else
+            {
+                // 빈칸을 다 채웠을 경우, 데이터 송신
+                JObject json_data = new JObject();
+
+                json_data["NUM_EVENT"] = this.CurrentClickedAnomaly.Idx;
+                json_data["CODE_ANOMALY"] = this.CurrentClickedAnomaly.Code_Anomaly;
+                json_data["MANAGER_PROC"] = this.CurrentClickedAnomaly.Worker;
+                json_data["MENO"] = this.CurrentClickedAnomaly.Memo;
+                json_data["DATE_END"] = DateTime.Now;
+
+                WorkItem item = new WorkItem();
+                item.Protocol = "1-2-1";
+                item.JsonData = json_data;
+
+                ExcuteCommand_Send(item);
+            }
+        }
+        private void pb_proc_init_Click(object sender, RoutedEventArgs e)
+        {
+            DeactiveDetailPanel(wrap_kind_anomaly);
         }
     }
 }
