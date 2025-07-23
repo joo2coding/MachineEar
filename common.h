@@ -13,7 +13,7 @@
 #pragma once
 #include <mysql.h> // 또는 <mariadb/mysql.h>
 #include <string>
-
+#include <mutex>
 
 #define BUF_SIZE 4096
 #define PORT 9000
@@ -44,11 +44,13 @@ struct ConnInfo  // 접속정보 구조체
 
 extern vector<ConnInfo> list_conninfo;
 
+
+
 WorkItem protocol_recv(WorkItem& item);
 void refresh_conninfo();
 void send_workitem(WorkItem& item);
 void Log_connect(int num_pin, bool state_connect);
-
+//WorkItem proc_1_2_0_recv(WorkItem& item);
 
 std::wstring Utf8ToUtf16(const std::string& utf8);
 inline string Utf16ToUtf8(const std::wstring& utf16);

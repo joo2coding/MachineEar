@@ -2,10 +2,8 @@
 #include <iomanip> // setw, se
 #include <fcntl.h>     // _O_U8TEXT
 
-
-
-
 vector<ConnInfo> list_conninfo;
+
 
 
 // 수신
@@ -70,7 +68,7 @@ WorkItem recv_parse(SOCKET& clientSock, vector<unsigned char>& buf_recv)
 
             //cout << "[Recv] :" << jsonStr << endl;
            
-            wcout << L"[Recv] Recv Message : " << ws << endl;
+            wcout << L"[ Recv from " << clientSock << " ] Recv Message : " << ws << endl;
             cout << "-----------------------------------------------------------------------------------------" << endl;
           
 
@@ -130,11 +128,22 @@ void send_workitem(WorkItem& item)
 
     // 클라이언트에게 데이터 송신
     send(item.socket, sendBuf.data(), sendBuf.size(), 0);
- 
+
+
+  
+    // UTF-8 → UTF-16 변환
     wstring ws = Utf8ToUtf16(sendStr);
+
+
+    wcout << L"[ Send to " << item.socket << " ] Send Message :\n" << ws << endl;
+    cout << "-----------------------------------------------------------------------------------------" << endl;
+
+    /*wstring ws = Utf8ToUtf16(sendStr);
  
 	wcout << L"[Send] Send Message : " << ws << endl;
     cout << "-----------------------------------------------------------------------------------------" << endl;
+*/
+
 }
 
 // 클라이언트별 스레드
@@ -168,9 +177,23 @@ void client_thread(SOCKET clientSock)
     }
     for (int i = 0; i < list_conninfo.size(); i++)
     {
-        if ((list_conninfo[i].socket = clientSock) && (list_conninfo[i].client_id == 0))
+        if ((list_conninfo[i].socket == clientSock) && (list_conninfo[i].client_id == 0))
         {
             Log_connect(list_conninfo[i].num_pin, false);
+
+			WorkItem send_item; // 응답용 WorkItem 생성
+            // 클라이언트(관리자)에게 상태 송신
+            send_item.protocol = "1-1-0";
+            for (int i = 0; i < list_conninfo.size(); i++)
+            {
+                if (list_conninfo[i].client_id == 1)
+                {
+                    send_item.socket = list_conninfo[i].socket; // 해당 마이크 소켓으로 설정
+                    send_item = protocol_recv(send_item);
+                    send_workitem(send_item); // 응답 전송
+                    break;
+                }
+            }
             break;
         }
     }
@@ -197,6 +220,8 @@ void refresh_conninfo()
     {
         cout << "종류 : " << conn.client_id << " - 소켓 : " << conn.socket << endl;
     }
+
+    cout << endl;
 }
 
 
@@ -248,7 +273,7 @@ int main()
 
     cout << "서버 준비 완료. 여러 클라이언트 접속 대기 중...\n";
 
-    vector<std::thread> threads; // 각 클라이언트용 스레드 관리
+    vector<thread> threads; // 각 클라이언트용 스레드 관리
 
     // 무한루프: 클라이언트가 들어올 때마다 새 스레드로 처리
     while (true)
