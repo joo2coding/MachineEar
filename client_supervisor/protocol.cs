@@ -44,6 +44,7 @@ namespace client_supervisor
             this.dict_proc_send.Add("1-1-0", Send_Protocol_Only);
             this.dict_proc_send.Add("1-1-1", Send_Protocol_Only);
             this.dict_proc_send.Add("1-1-2", Send_Protocol_Only);
+            this.dict_proc_send.Add("1-2-0", Send_Protocol_Only);
             this.dict_proc_send.Add("1-2-1", Send_Mic_State_Anomaly);
             this.dict_proc_send.Add("1-2-2", Send_Req_Event_List);
             this.dict_proc_send.Add("1-2-3", Send_Data_Event_List);
@@ -343,30 +344,67 @@ namespace client_supervisor
             Console.WriteLine($"핀 목록 갯수 : {this.PinList.Count}");
             foreach(ClientPin pin in this.PinList)
             {
-                Console.WriteLine($"핀 이름 {pin.Name} - 번호 : {pin.Idx} - 지도번호 : {pin.MapIndex} - MAC : {pin.MAC}");
+                Console.WriteLine($"핀 이름 {pin.Name} - 번호 : {pin.Idx} - 지도번호 : {pin.MapIndex} - MAC : {pin.MAC} - Connect : {pin.State_Connect} - Active : {pin.State_Active}");
             }
         }
         // 1-2-0 : 이상상황 발생한 핀에 대하여 데이터 수신, 클라이언트가 요청하면 일일 전체 목록 요청 후 수신(처음 접속할 때만 요청)
         private void Recv_Mic_State_Anomaly(WorkItem item)
         {
             Console.WriteLine($"[{item.Protocol}] 이상 상황 발생 데이터 수신");
+            this.List_Daily_Anomaly.Clear();        // 목록 초기화
 
             JArray arr_data = item.JsonData["DATA"] as JArray;
 
-            foreach (JObject obj in arr_data)
+            foreach (JObject obj_ano in arr_data)
             {
-                int idx = obj["NUM_EVENT"].Value<int>();
-                ClientPin pin = new ClientPin();
-                pin.Idx = obj["NUM_PIN"].Value<int>();
+                // 핀 목록에서 같은 인덱스를 가진 핀에 대해서 얕은 복사
+                ClientPin pin_new = new ClientPin();
+                foreach( ClientPin pin in this.PinList)
+                {
+                    if (pin.Idx == obj_ano["NUM_PIN"].Value<int>()) pin_new = pin;
+                }
 
-                DateTime time_start = obj["DATE_START"].Value<DateTime>();
-                int code = obj["CODE_ERROR"].Value<int>();
+                string name_map = "";
+                foreach (MapSector map in this.MapSectors)
+                {
+                    if (map.Num_Map == pin_new.MapIndex) name_map = map.Name_Map;
+                }
 
-                // 인스턴스 생성
-                AnomalyLog anomaly = new AnomalyLog(idx, pin, time_start, code);
+                int idx = obj_ano["NUM_EVENT"].Value<int>(); // 이벤트 번호
+                int code_error = obj_ano["CODE_ERROR"].Value<int>(); // 이상 코드
+                int code_anomaly = obj_ano["CODE_ANOMALY"].Value<int>(); // 상태 코드
+                string worker = obj_ano["MANAGER_PROC"].Value<string>(); // 처리자 이름
+                string memo = obj_ano["MEMO"].Value<string>(); // 메모 내용
 
-                // 전역 목록에 추가
-                this.List_Daily_Anomaly.Add(anomaly);
+                DateTime time_start = DateTime.MinValue; // 기본값 설정
+                if (obj_ano.TryGetValue("DATE_START", out JToken dateStartToken) && dateStartToken.Type != JTokenType.Null)
+                {
+                    if (!DateTime.TryParse(dateStartToken.ToString(), out time_start))
+                    {
+                        // 파싱 실패 시, time_start는 DateTime.MinValue로 유지되거나 원하는 다른 기본값 설정
+                        //Console.WriteLine($"[경고] DATE_START '{dateStartToken}' 파싱 실패! DateTime.MinValue로 설정됩니다.");
+                    }
+                }
+                else
+                {
+                    //Console.WriteLine("[정보] DATE_START 키가 없거나 값이 null입니다. DateTime.MinValue로 설정됩니다.");
+                }
+
+                DateTime time_end = DateTime.MinValue; // 기본값 설정
+                if (obj_ano.TryGetValue("DATE_END", out JToken dateEndToken) && dateEndToken.Type != JTokenType.Null)
+                {
+                    if (!DateTime.TryParse(dateEndToken.ToString(), out time_end))
+                    {
+                        // 파싱 실패 시, time_end는 DateTime.MinValue로 유지되거나 원하는 다른 기본값 설정
+                        //Console.WriteLine($"[경고] DATE_END '{dateEndToken}' 파싱 실패! DateTime.MinValue로 설정됩니다.");
+                    }
+                }
+                else
+                {
+                    //Console.WriteLine("[정보] DATE_END 키가 없거나 값이 null입니다. DateTime.MinValue로 설정됩니다.");
+                }
+
+                this.List_Daily_Anomaly.Add(new AnomalyLog(idx, pin_new, time_start, code_error, name_map, worker, time_end, memo, code_anomaly));
             }
 
             // 핀 색상 업데이트
@@ -414,12 +452,36 @@ namespace client_supervisor
                 int code_anomaly = obj_ano["CODE_ANOMALY"].Value<int>(); // 상태 코드
                 string worker = obj_ano["MANAGER_PROC"].Value<string>(); // 처리자 이름
                 string memo = obj_ano["MEMO"].Value<string>(); // 메모 내용
-                DateTime time_start = obj_ano["DATE_START"].Value<DateTime>(); // 발생일자
-                DateTime time_end = obj_ano["DATE_END"].Value<DateTime>(); // 종료일자
 
-                //anomaly_logs(idx, pin_new, time_start, code_error, name_map, worker, time_end, memo, code_anomaly);
+                DateTime time_start = DateTime.MinValue; // 기본값 설정
+                if (obj_ano.TryGetValue("DATE_START", out JToken dateStartToken) && dateStartToken.Type != JTokenType.Null)
+                {
+                    if (!DateTime.TryParse(dateStartToken.ToString(), out time_start))
+                    {
+                        // 파싱 실패 시, time_start는 DateTime.MinValue로 유지되거나 원하는 다른 기본값 설정
+                        Console.WriteLine($"[경고] DATE_START '{dateStartToken}' 파싱 실패! DateTime.MinValue로 설정됩니다.");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[정보] DATE_START 키가 없거나 값이 null입니다. DateTime.MinValue로 설정됩니다.");
+                }
+
+                DateTime time_end = DateTime.MinValue; // 기본값 설정
+                if (obj_ano.TryGetValue("DATE_END", out JToken dateEndToken) && dateEndToken.Type != JTokenType.Null)
+                {
+                    if (!DateTime.TryParse(dateEndToken.ToString(), out time_end))
+                    {
+                        // 파싱 실패 시, time_end는 DateTime.MinValue로 유지되거나 원하는 다른 기본값 설정
+                        Console.WriteLine($"[경고] DATE_END '{dateEndToken}' 파싱 실패! DateTime.MinValue로 설정됩니다.");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[정보] DATE_END 키가 없거나 값이 null입니다. DateTime.MinValue로 설정됩니다.");
+                }
+
                 anomaly_logs.Add(new AnomalyLog(idx, pin_new, time_start, code_error, name_map, worker, time_end, memo, code_anomaly));
-                //this.pb_log_Click(anomaly_logs, );
             }
 
             this.log_total.transit_log(anomaly_logs);

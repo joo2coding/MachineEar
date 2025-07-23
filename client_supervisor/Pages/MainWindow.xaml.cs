@@ -49,11 +49,8 @@ namespace client_supervisor
 
         // 이상상황 목록
         public ObservableCollection<AnomalyLog> List_Daily_Anomaly { get; set; } = new ObservableCollection<AnomalyLog>();
-<<<<<<< HEAD
+        public Window_Log_TotalAnomaly? log_total;
         public AnomalyLog CurrentClickedAnomaly;
-=======
-        Window_Log_TotalAnomaly? log_total;
->>>>>>> origin/Boeun_Supervisor
 
         // 지도 목록
         public ObservableCollection<MapSector> MapSectors { get; set; } = new ObservableCollection<MapSector>();
@@ -209,6 +206,7 @@ namespace client_supervisor
         private void ConnTCP_Click(object sender, RoutedEventArgs e)
         {
             Popup_Connect.IsOpen = true;
+            grid_frame.IsEnabled = false;
 
             // 소켓 생성 및 초기화
             this.InitializeCustomComponents();
@@ -229,6 +227,7 @@ namespace client_supervisor
             this.MapSectors.Clear();        // 도면 초기화
 
             Popup_Connect.IsOpen = false;
+            grid_frame.IsEnabled = true;
         }
         private void EditTCP_Click(object sender, RoutedEventArgs e)
         {
@@ -337,7 +336,9 @@ namespace client_supervisor
                 this.Act_SendAndRecv(send_120);
             }
 
+            // 팝업 종료 및 메인 프레임 사용
             Popup_Connect.IsOpen = false;
+            grid_frame.IsEnabled = true;
         }
         // 서버 연결이 끊어졌을 때 실행되는 메서드
         private void OnDisconnectedFromServer()
@@ -435,7 +436,6 @@ namespace client_supervisor
             if (radioButton != null)
             {
                 //MessageBox.Show($"{radioButton.Content}이(가) 선택되었습니다.");
-                
             }
         }
         // 라디오 버튼 생성
@@ -807,7 +807,6 @@ namespace client_supervisor
                     pb_state_active.Content = clickedPin.State_Active ? "정지" : "작동";
                     pb_state_active.IsEnabled = true;
 
-<<<<<<< HEAD
                     pb_proc_commit.IsEnabled = true;
                     pb_proc_init.IsEnabled = true;
 
@@ -830,23 +829,6 @@ namespace client_supervisor
                             this.CurrentClickedAnomaly = log;
 
                             break;
-=======
-                    // 이상발생 목록 확인 후 가장 최신 핀 정보로 업데이트, 없으면 초기화
-                    if (clickedPin.State_Anomaly > 0)
-                    {
-                        for (int i = this.List_Daily_Anomaly.Count - 1; i >= 0; i--)
-                        {
-                            //if (this.List_Daily_Anomaly[i].Idx_Pin == this.idx_map)
-                            //{
-                            //    AnomalyLog log = this.List_Daily_Anomaly[i];
-
-                            //    label_start_datetime.Content = log.Time_Start.ToString("F");
-                            //    label_proc_datetime.Content = log.Time_End.ToString("F");
-                            //    RadioGroupChangeState();
-                            //    textbox_proc_manager.Text = log.Worker;
-                            //    textbox_proc_memo.Text = log.Memo;
-                            //}
->>>>>>> origin/Boeun_Supervisor
                         }
                     }
                 }
