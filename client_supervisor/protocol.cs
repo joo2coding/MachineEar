@@ -336,7 +336,42 @@ namespace client_supervisor
         // 1-2-2 : 특정 요청일에 대하여 전체 기록 수신
         private void Recv_Req_Event_List(WorkItem item)
         {
-            Console.WriteLine($"[{item.Protocol}] 특정 요청일({item.JsonData["DATE_REQ"].Value<DateTime>().ToString("d")})에 대한 로그 수신");
+            //Console.WriteLine($"[{item.Protocol}] 특정 요청일({item.JsonData["DATE_REQ"].Value<DateTime>().ToString("d")})에 대한 로그 수신");
+
+            // 서버에서 받을 데이터 목록 생성
+            ObservableCollection<AnomalyLog> anomaly_logs = new ObservableCollection<AnomalyLog>();
+
+            // 서버에서 수신받은 데이터를 목록에 넣기
+            JArray arr_data = item.JsonData["DATA"] as JArray;
+
+            foreach (JObject obj_ano in arr_data)
+            {
+                //Console.WriteLine($"obj_ano : {obj_ano}");
+
+                ClientPin pin_new = new ClientPin // 핀 정보
+                {
+                    Idx = obj_ano["NUM_PIN"].Value<int>(),
+                    Name_Pin = obj_ano["NAME_PIN"].Value<string>(),
+                    Name_Location = obj_ano["NAME_LOC"].Value<string>(),
+                    Name_Manager = obj_ano["NAME_MANAGER"].Value<string>()
+                };
+                string name_map = obj_ano["NAME_MAP"].Value<string>();
+                int idx = obj_ano["NUM_EVENT"].Value<int>(); // 이벤트 번호
+                int code_error = obj_ano["CODE_ERROR"].Value<int>(); // 이상 코드
+                int code_anomaly = obj_ano["CODE_ANOMALY"].Value<int>(); // 상태 코드
+                string worker = obj_ano["MANAGER_PROC"].Value<string>(); // 처리자 이름
+                string memo = obj_ano["MEMO"].Value<string>(); // 메모 내용
+                DateTime time_start = obj_ano["DATE_START"].Value<DateTime>(); // 발생일자
+                DateTime time_end = obj_ano["DATE_END"].Value<DateTime>(); // 종료일자
+
+                //anomaly_logs(idx, pin_new, time_start, code_error, name_map, worker, time_end, memo, code_anomaly);
+                anomaly_logs.Add(new AnomalyLog(idx, pin_new, time_start, code_error, name_map, worker, time_end, memo, code_anomaly));
+                //this.pb_log_Click(anomaly_logs, );
+            }
+
+            this.log_total.transit_log(anomaly_logs);
+            
+
         }
         // 1-3-0 : 지도 목록 수신
         private void Recv_Req_Map_List(WorkItem item)
