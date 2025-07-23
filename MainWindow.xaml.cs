@@ -166,7 +166,7 @@ namespace MachineEar_MIC
                         {
                             { "SIZE", size ?? 0 },
                             { "SAMPLING_RATE", 16000 }, // 16KHz,
-                            { "TIME", time ?? 0 },
+                            { "TIME", 10 },
                             { "SOURCE", source ?? "WAV" }
                         };
                         break;
@@ -198,7 +198,7 @@ namespace MachineEar_MIC
                 try
                 {
                     string json = CreateProtocolJson(type, mac, pin, size, time, source, connection);
-                    return await SendMessageAsync(json);
+                    return await SendMessageAsync(json, fileData);
                 }
                 catch (Exception ex)
                 {
@@ -419,7 +419,7 @@ namespace MachineEar_MIC
                                     if (parsed.ContainsKey("NUM_PIN"))
                                     {
                                         _numPin = parsed["NUM_PIN"].ToString();
-                                        Debug.WriteLine($"[NUM_PIN 저장됨] {_numPin}");
+                                        //Debug.WriteLine($"[NUM_PIN 저장됨] {_numPin}");
 
                                         // ✅ NUM_PIN 저장 후 콜백 호출
                                         OnNumPinReceived?.Invoke(_numPin);
@@ -535,26 +535,33 @@ namespace MachineEar_MIC
                     byte[] jsonBytes = Encoding.UTF8.GetBytes(jsonMessage);
                     int jsonSize = jsonBytes.Length;
                     int fileSize = fileData?.Length ?? 0;
-                    int totalSize = jsonSize; // 오디오 없으면 totalSize = jsonSize
+                    int totalSize = jsonSize + fileSize;  
 
                     // [헤더] 4바이트(totalSize) + 4바이트(jsonSize), 네트워크 바이트 오더
                     byte[] header = new byte[8];
                     Array.Copy(BitConverter.GetBytes(IPAddress.HostToNetworkOrder(totalSize)), 0, header, 0, 4);
                     Array.Copy(BitConverter.GetBytes(IPAddress.HostToNetworkOrder(jsonSize)), 0, header, 4, 4);
 
-                    // 최종 전송 버퍼: header + json
-                    byte[] sendBuffer = new byte[8 + jsonSize];
+                    // ✅ [수정] 전체 전송 버퍼 크기 조정: header + json + file
+                    byte[] sendBuffer = new byte[8 + jsonSize + fileSize];  // 🔧 수정 지점
                     Array.Copy(header, 0, sendBuffer, 0, 8);
                     Array.Copy(jsonBytes, 0, sendBuffer, 8, jsonSize);
 
+                    // ✅ [추가] 파일이 있을 경우 바이너리 데이터 추가
                     if (fileSize > 0)
-                        Array.Copy(fileData, 0, sendBuffer, 8 + jsonSize, fileSize);
+                    {
+                        Array.Copy(fileData, 0, sendBuffer, 8 + jsonSize, fileSize);  // 🔧 추가 지점
+                    }
+
+                    // ✅ [추가] 실제 전송 디버그 로그
+                    Debug.WriteLine($"[전송 디버그] totalSize={totalSize}, jsonSize={jsonSize}, fileSize={fileSize}, sendBuffer={sendBuffer.Length}");
+
 
                     // 전송
                     await _clientSocket.SendAsync(new ArraySegment<byte>(sendBuffer), SocketFlags.None);
 
                     Debug.WriteLine($"[전송] 총 {sendBuffer.Length} 바이트 (헤더+JSON)");
-                    Debug.WriteLine($"[전송 JSON] {jsonMessage}");
+                    //Debug.WriteLine($"[전송 JSON] {jsonMessage}");
                     return true;
                 }
                 catch (SocketException ex)
@@ -696,7 +703,7 @@ namespace MachineEar_MIC
             {
                 DeviceNumber = 0, // 사용할 마이크 장치 인덱스 (0: 기본 장치)
                 WaveFormat = new NAudio.Wave.WaveFormat(rate: 1000, bits: 16, channels: 1), // 1kHz, 16비트, Mono
-                BufferMilliseconds = 10 // 10ms 단위로 버퍼 처리 (짧을수록 실시간 반응)
+                BufferMilliseconds = 100 // 10ms 단위로 버퍼 처리 (짧을수록 실시간 반응)
             };
         }
 
@@ -716,7 +723,7 @@ namespace MachineEar_MIC
             // ✅ NUM_PIN 수신 시 자동 상태조회 전송
             tcpService.OnNumPinReceived = async (pin) =>
             {
-                Debug.WriteLine($"[MainWindow] NUM_PIN 수신됨 → 상태 조회 전송 시작");
+                //Debug.WriteLine($"[MainWindow] NUM_PIN 수신됨 → 상태 조회 전송 시작");
                 await tcpService.SendProtocolAsync(ProtocolName.StatusCheck, pin: pin);
             };
 
@@ -741,6 +748,23 @@ namespace MachineEar_MIC
             }
         }
 
+        private void UpdateMicLevelUI(float[] samples)
+        {
+            double sumSquares = 0;
+            foreach (var s in samples)
+                sumSquares += s * s;
+
+            double rms = Math.Sqrt(sumSquares / samples.Length);
+            double decibel = 20 * Math.Log10(rms + 1e-6);
+            int level = (int)(rms * 100);
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                micLevelBar.Value = level;
+                decibelText.Text = $"{decibel:F1} dB";
+            });
+        }
+
 
         private void StartWavTimer()
         {
@@ -763,7 +787,18 @@ namespace MachineEar_MIC
                         var randomFile = files[new Random().Next(files.Length)];
                         byte[] wavData = File.ReadAllBytes(randomFile);
 
-                        // JSON 메타데이터 전송
+                        // 🟩 1. 파형 그리기 위해 샘플 추출
+                        float[] samples = ReadWavFileSamples(randomFile);
+                        UpdateMicLevelUI(samples);
+
+                        // 🟩 2. UI 쓰레드에서 파형 그리기 실행
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            DrawWaveform(samples); // 파형 그리기
+                            label_FileName.Content = System.IO.Path.GetFileName(randomFile);
+                        });
+
+                        // 🟩 3. 서버로 전송
                         await tcpService.SendProtocolAsync(
                             ProtocolName.AudioSend,
                             pin: tcpService.NumPin,
@@ -772,7 +807,10 @@ namespace MachineEar_MIC
                             source: "WAV",
                             fileData: wavData
                         );
-                        Debug.WriteLine($"[WAV 전송 완료] 파일: {System.IO.Path.GetFileName(randomFile)}, 크기: {wavData.Length} 바이트");
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            label_FileName.Content = System.IO.Path.GetFileName(randomFile);
+                        }); Debug.WriteLine($"[WAV 전송 완료] 파일: {System.IO.Path.GetFileName(randomFile)}, 크기: {wavData.Length} 바이트");
                     }
                     else
                     {
@@ -818,11 +856,18 @@ namespace MachineEar_MIC
 
         private void btn_mac_connect_Click(object sender, RoutedEventArgs e)
         {
+            if (tcpService == null || !tcpService.IsConnected)
+            {
+                MessageBox.Show("서버에 연결되어 있지 않습니다. 먼저 서버에 연결해주세요.", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
             var dialog = new System.Windows.Forms.FolderBrowserDialog();
 
             if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
             {
                 wav_file_path = dialog.SelectedPath;
+                textbox_ForderName.Text = wav_file_path; // 폴더 경로를 TextBox에 표시
                 Debug.WriteLine($"[선택된 폴더] {wav_file_path}");
 
                 // ✅ 폴더 선택 후 WAV 전송 타이머 시작
@@ -890,14 +935,47 @@ namespace MachineEar_MIC
         private void radio_mic_Checked(object sender, RoutedEventArgs e)
         {
             btn_browse.IsEnabled = false;
-            var waveIn = GetWaveIn();
+            ComboBox_mic.IsEnabled = true; // 콤보박스 활성화
+
             ComboBox_mic.Items.Clear();
-            ComboBox_mic.Items.Add($"Device {waveIn.DeviceNumber}: {waveIn.WaveFormat.SampleRate}Hz, {waveIn.WaveFormat.BitsPerSample}bit, {waveIn.WaveFormat.Channels}ch");
+
+            for (int i = 0; i < WaveIn.DeviceCount; i++)
+            {
+                var info = WaveIn.GetCapabilities(i);
+                ComboBox_mic.Items.Add($"Device {i}: {info.ProductName}");
+            }
+
+            Debug.WriteLine("🎤 마이크 장치 리스트 로딩 완료");
         }
+
+        private void ComboBox_mic_DropDownClosed(object sender, EventArgs e)
+        {
+            if (ComboBox_mic.SelectedIndex < 0)
+                return;
+
+            int selectedDeviceIndex = ComboBox_mic.SelectedIndex;
+            Debug.WriteLine($"✅ DropDownClosed: Index = {selectedDeviceIndex}");
+
+            StartMicCapture(selectedDeviceIndex);
+        }
+
 
         private void radio_csv_Checked(object sender, RoutedEventArgs e)
         {
             btn_browse.IsEnabled = true;
+            ComboBox_mic.IsEnabled = false;
+
+            StopMicCapture(); Thread.Sleep(100);
+
+            ComboBox_mic.Items.Clear(); // 콤보박스 초기화
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                micLevelBar.Value = 0;
+                decibelText.Text = "0 dB";
+            });
+
+
         }
 
         private void SetConnectionStatus(bool isConnected)
@@ -909,21 +987,57 @@ namespace MachineEar_MIC
             });
         }
 
-        private void StartMicCapture()
+        private void StartMicCapture(int deviceIndex)
         {
+            // ✅ [기존 waveIn 중복 방지 및 자원 해제]
+            if (waveIn != null)
+            {
+                waveIn.StopRecording();
+                waveIn.Dispose();
+                waveIn = null; // ⬅️ 안전하게 초기화도 해주세요
+            }
+
             audioBuffer = new MemoryStream();
 
-            waveIn = new WaveInEvent();
-            waveIn.DeviceNumber = 0; // 첫 번째 마이크
-            waveIn.WaveFormat = new WaveFormat(16000, 1); // 16kHz, 모노
+            waveIn = new WaveInEvent
+            {
+                DeviceNumber = deviceIndex,
+                WaveFormat = new WaveFormat(16000, 1),
+                BufferMilliseconds = 100
+            };
+            waveIn.StartRecording();
 
             waveIn.DataAvailable += (s, a) =>
             {
+                //Debug.WriteLine($"📢 [마이크 수신] BytesRecorded = {a.BytesRecorded}");
+
                 // 캡처된 소리 데이터를 버퍼에 저장
                 audioBuffer.Write(a.Buffer, 0, a.BytesRecorded);
+
+                // ✅ 실시간 입력 레벨 계산 및 표시
+                double sumSquares = 0;
+                int sampleCount = a.BytesRecorded / 2;
+
+                for (int i = 0; i < sampleCount; i++)
+                {
+                    short sample = BitConverter.ToInt16(a.Buffer, i * 2);
+                    double normalized = sample / 32768.0;
+                    sumSquares += normalized * normalized;
+                }
+
+                double rms = Math.Sqrt(sumSquares / sampleCount);   // 평균 제곱근 (0 ~ 1)
+                double decibel = 20 * Math.Log10(rms + 1e-6);        // dB 단위 (로그 스케일)
+                int level = (int)(rms * 100);                        // 0 ~ 100 범위로 변환
+
+                Application.Current.Dispatcher.Invoke(() =>
+                {
+                    micLevelBar.Value = level;
+                    decibelText.Text = $"{decibel:F1} dB";
+                });
+
             };
 
-            waveIn.StartRecording();
+            //waveIn.StartRecording();
 
             micTimer = new System.Timers.Timer(2000); // 2초 타이머
             micTimer.Elapsed += async (s, e) =>
@@ -937,6 +1051,17 @@ namespace MachineEar_MIC
                 //await SendPacketAsync(audioBytes, "MIC", 2);
 
                 micTimer.Start();
+
+                // 서버 전송 (추후 확장성)
+                //await tcpService.SendProtocolAsync(
+                //    ProtocolName.AudioSend,
+                //    pin: tcpService.NumPin,
+                //    size: audioBytes.Length,
+                //    time: 2,
+                //    source: "MIC",
+                //    fileData: audioBytes
+                //);
+                //micTimer.Start();
             };
             micTimer.Start();
         }
@@ -951,8 +1076,31 @@ namespace MachineEar_MIC
 
         private void btn_disconnec_Click(object sender, RoutedEventArgs e)
         {
+            wavTimer?.Stop(); // WAV 전송 타이머 중지
+            textbox_ForderName.Text = null;
             ellipse_status.Fill = Brushes.Gray; // 연결 상태 표시 (회색)
             tcpService?.Disconnect(); // TCP 연결 해제
+            micTimer.Stop();
+        }
+
+        private void textbox_ForderName_TextChanged(object sender, TextChangedEventArgs e)
+        {
+
+        }
+
+        private void ComboBox_mic_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            Debug.WriteLine($"✅ SelectionChanged: Index = {ComboBox_mic.SelectedIndex}");
+
+            if (ComboBox_mic.SelectedIndex < 0)
+                return;
+
+            StartMicCapture(ComboBox_mic.SelectedIndex);
+        }
+
+        private void textbox_filename_TextChanged(object sender, TextChangedEventArgs e)
+        {
+
         }
     }
 }
