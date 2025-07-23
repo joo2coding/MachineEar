@@ -84,8 +84,8 @@ namespace client_supervisor
 
             this.load_serveraddr(this.path_server);
 
-            //Header_Manage_Map.IsEnabled = true;
-            //this.MapSectors = this.load_maplist(true);      // 지도 목록 불러오기
+            Header_Manage_Map.IsEnabled = true;
+            this.MapSectors = this.load_maplist(true);      // 지도 목록 불러오기
         }
         /*-------------------------------------------------------------------*/
         // 로컬 json 파일 제어
@@ -1040,18 +1040,13 @@ namespace client_supervisor
             else
             {
                 // 빈칸을 다 채웠을 경우, 데이터 송신
-                JObject json_data = new JObject();
-
-                json_data["NUM_EVENT"] = this.CurrentClickedAnomaly.Idx;
-                json_data["CODE_ANOMALY"] = this.CurrentClickedAnomaly.Code_Anomaly;
-                json_data["MANAGER_PROC"] = this.CurrentClickedAnomaly.Worker;
-                json_data["MENO"] = this.CurrentClickedAnomaly.Memo;
-                json_data["DATE_END"] = DateTime.Now;
+                this.CurrentClickedAnomaly.Worker = textbox_proc_manager.Text;
+                this.CurrentClickedAnomaly.Memo = textbox_proc_memo.Text;
+                this.CurrentClickedAnomaly.Code_Error = radio;
+                this.CurrentClickedAnomaly.Time_End = DateTime.Now;
 
                 WorkItem item = new WorkItem();
                 item.Protocol = "1-2-1";
-                item.JsonData = json_data;
-
                 ExcuteCommand_Send(item);
             }
         }

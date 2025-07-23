@@ -20,17 +20,6 @@ namespace client_supervisor
         {
             Console.WriteLine("지도 번호 재정렬");
 
-            //Console.WriteLine("원본 - ");
-            //foreach (MapSector map in src)
-            //{
-            //    Console.WriteLine($"지도 번호 : {map.Num_Map} - 지도 이름 : {map.Name_Map} - 인덱스 : {map.Idx}");
-            //}
-            //Console.WriteLine("수신본 - ");
-            //foreach (MapSector map in tgt)
-            //{
-            //    Console.WriteLine($"지도 번호 : {map.Num_Map} - 지도 이름 : {map.Name_Map} - 인덱스 : {map.Idx}");
-            //}
-
             for (int i = 0; i < src.Count; i++)
             {
                 for(int j = 0; j < tgt.Count; j++)
@@ -75,7 +64,7 @@ namespace client_supervisor
             ObservableCollection<MapSector> mapSectors = new ObservableCollection<MapSector>();
 
             string read_string = File.ReadAllText(this.path_map_meta);
-            JArray metaObject = JsonConvert.DeserializeObject<JArray>(read_string);
+            JArray? metaObject = JsonConvert.DeserializeObject<JArray>(read_string);
             // 경로 파일에서 경로를 읽어와서 mapSectors에 추가
     
             for (int j = 0; j < metaObject.Count; j++)
@@ -86,11 +75,12 @@ namespace client_supervisor
                 map_new.Name_Map = metaObject[j]["NAME"].Value<string>();
                 map_new.Idx = metaObject[j]["IDX"].Value<int>();
 
+
                 mapSectors.Add(map_new);
             }
             
             string read_path = File.ReadAllText(this.path_map_path);
-            JArray pathObject = JsonConvert.DeserializeObject<JArray>(read_path);
+            JArray? pathObject = JsonConvert.DeserializeObject<JArray>(read_path);
             // 경로 파일에서 경로를 읽어와서 mapSectors에 추가
             for (int i = 0; i < mapSectors.Count; i++)
             {
@@ -270,7 +260,7 @@ namespace client_supervisor
             }
         }
 
-        private string _name_map;
+        private string? _name_map;
         public string Name_Map
         {
             get { return _name_map; }
@@ -284,13 +274,13 @@ namespace client_supervisor
             }
         }
 
-        public string Path { get; set; }
+        public string? Path { get; set; }
 
         public int SizeB { get; set; }
 
-        public string Path_Origin { get; set; }
-        //public ICommand UpCommand { get; set; }
-        //public ICommand DownCommand { get; set; }
+        public string? Path_Origin { get; set; }
+        public ICommand? UpCommand { get; set; }
+        public ICommand? DownCommand { get; set; }
 
         // 체크박스
         private bool _isSelected;
@@ -350,6 +340,25 @@ namespace client_supervisor
             copy.Path_Origin = this.Path_Origin;
             copy.Idx = this.Idx;
             copy.IsSelected = this.IsSelected;
+
+            return copy;
+        }
+
+        // 깊은 복사, UpCommand와 DownCommand를 새로 생성하여 복사본에 할당
+        public MapSector Copy(Action<object> onUpCommandExecuted, Action<object> onDownCommandExecuted)
+        {
+            MapSector copy = new();
+
+            copy.Name_Map = this.Name_Map;
+            copy.Num_Map = this.Num_Map;
+            copy.SizeB = this.SizeB;
+            copy.Path = this.Path;
+            copy.Path_Origin = this.Path_Origin;
+            copy.Idx = this.Idx;
+            copy.IsSelected = this.IsSelected;
+
+            copy.UpCommand = new RelayCommand(onUpCommandExecuted);
+            copy.DownCommand = new RelayCommand(onDownCommandExecuted);
 
             return copy;
         }

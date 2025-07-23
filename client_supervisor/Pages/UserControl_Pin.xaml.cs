@@ -257,35 +257,7 @@ namespace client_supervisor
             }
         }
 
-        public void ChangeColorMode(STATE_COLOR mode)
-        {
-            // mode 0: 오프라인 상태, mode 1: 대기 상태 mode 2 : 작업중, mode 3: 이상 상태 색상
-            this.Mode_Color = mode;
-            switch (mode)
-            {
-                case STATE_COLOR.OFFLINE:
-                    ChangeStrokeColor("Black");
-                    ChangeFillColor("DarkGray");
-                    break;
-                case STATE_COLOR.STANDBY:
-                    ChangeStrokeColor("Black");
-                    ChangeFillColor("Green");
-                    break;
-                case STATE_COLOR.WORKING:
-                    ChangeStrokeColor("Black");
-                    ChangeFillColor("Yellow");
-                    break;
-                case STATE_COLOR.ANOMALY:
-                    ChangeStrokeColor("Black");
-                    ChangeFillColor("Red");
-                    break;
-                default:
-                    Console.WriteLine("Invalid mode. Please use 0, 1, or 2.");
-                    break;
-            }
-        }
-
-        // 라우티드 이벤트 정의
+         // 라우티드 이벤트 정의
         public static readonly RoutedEvent PinClickedEvent = EventManager.RegisterRoutedEvent(
             "PinClicked",                     // 이벤트 이름
             RoutingStrategy.Bubble,           // 이벤트 라우팅 전략 (버블링: 자식에서 부모로 전파)
@@ -342,6 +314,44 @@ namespace client_supervisor
             }
 
             return copy;
+        }
+        public bool HasChanged(ClientPin other)
+        {
+            // 연결 상태, 활성화 상태, 위치 등 변경될 수 있는 모든 속성을 비교
+            return this.State_Connect != other.State_Connect ||
+                   this.State_Active != other.State_Active ||
+                   this.PosX != other.PosX ||
+                   this.PosY != other.PosY ||
+                   this.Name_Pin != other.Name_Pin || // 이름도 변경될 수 있다면 추가
+                   this.MapIndex != other.MapIndex || // 지도 인덱스도 변경될 수 있다면 추가
+                   this.Name_Location != other.Name_Location ||
+                   this.Name_Manager != other.Name_Manager;
+            // Date_Reg 등 변경되지 않을 속성은 비교에서 제외
+        }
+
+        public void ChangeColorMode(STATE_COLOR mode)
+        {
+            // mode 0: 오프라인 상태, mode 1: 대기 상태 mode 2 : 작업중, mode 3: 이상 상태 색상
+            this.Mode_Color = mode;
+            ChangeStrokeColor("Black");
+            switch (mode)
+            {
+                case STATE_COLOR.OFFLINE:
+                    ChangeFillColor("DarkGray");
+                    break;
+                case STATE_COLOR.STANDBY:
+                    ChangeFillColor("Green");
+                    break;
+                case STATE_COLOR.WORKING:
+                    ChangeFillColor("Yellow");
+                    break;
+                case STATE_COLOR.ANOMALY:
+                    ChangeFillColor("Red");
+                    break;
+                default:
+                    Console.WriteLine("Invalid mode. Please use 0 ~ 3.");
+                    break;
+            }
         }
     }
 

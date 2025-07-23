@@ -46,7 +46,7 @@ namespace client_supervisor
             this.dict_proc_send.Add("1-1-2", Send_Protocol_Only);
             this.dict_proc_send.Add("1-2-0", Send_Protocol_Only);
             this.dict_proc_send.Add("1-2-1", Send_Mic_State_Anomaly);
-            this.dict_proc_send.Add("1-2-2", Send_Req_Event_List);
+            this.dict_proc_send.Add("1-2-2", Send_Protocol_Only);
             this.dict_proc_send.Add("1-2-3", Send_Data_Event_List);
             this.dict_proc_send.Add("1-3-0", Send_Protocol_Only);
             this.dict_proc_send.Add("1-3-1", Send_Data_Map_List);
@@ -124,12 +124,13 @@ namespace client_supervisor
         private WorkItem Send_Mic_State_Anomaly(WorkItem item)
         {
             WorkItem send_item = item;
-            return send_item;
-        }
-        // 1-2-2 : 특정 요청일에 대하여 전체 기록 요청 
-        private WorkItem Send_Req_Event_List(WorkItem item)
-        {
-            WorkItem send_item = item;
+
+            send_item.JsonData["NUM_EVENT"] = this.CurrentClickedAnomaly.Idx;
+            send_item.JsonData["CODE_ANOMALY"] = this.CurrentClickedAnomaly.Code_Anomaly;
+            send_item.JsonData["MANAGER_PROC"] = this.CurrentClickedAnomaly.Worker;
+            send_item.JsonData["MENO"] = this.CurrentClickedAnomaly.Memo;
+            send_item.JsonData["DATE_END"] = this.CurrentClickedAnomaly.Time_End;
+
             return send_item;
         }
         // 1-2-3 : 이전 기록에 대한 정보 수정 전송
@@ -150,9 +151,7 @@ namespace client_supervisor
                 obj.Add("NUM_MAP", map.Num_Map);
                 obj.Add("INDEX_MAP", map.Idx);
                 obj.Add("NAME_MAP", map.Name_Map);
-                // 필요하다면 다른 추가 속성도 여기에 포함합니다. (예: Path_Origin, SizeB 등)
-                // obj.Add("PATH_ORIGIN", map.Path_Origin);
-                // obj.Add("SIZE", map.SizeB);
+
                 addedMaps.Add(obj);
             }
             send_item.JsonData["ADD"] = JArray.FromObject(addedMaps); // 추가된 맵은 "ADD" 키로 전송
@@ -165,17 +164,11 @@ namespace client_supervisor
                 obj.Add("NUM_MAP", map.Num_Map);
                 obj.Add("INDEX_MAP", map.Idx);
                 obj.Add("NAME_MAP", map.Name_Map);
-                // 수정된 맵은 변경된 모든 속성을 포함해야 합니다.
-                // 예를 들어, 이름이나 경로, 크기 등이 변경될 수 있으므로 모든 관련 속성을 포함합니다.
                 obj.Add("SIZE", map.SizeB);
                 // ... 필요한 다른 속성들 추가
                 modifiedMaps.Add(obj);
             }
             send_item.JsonData["MODIFIED"] = JArray.FromObject(modifiedMaps); // 수정된 맵은 "MODIFIED" 키로 전송
-
-            // 3. 삭제된 맵 정보 처리 (REMOVED)
-            // this.Map_Removed 리스트는 List<int> (Idx 값) 타입이라고 가정합니다.
-            // 삭제된 맵은 Idx 값만 보내는 경우가 많으므로, List<int>를 JArray로 변환합니다.
             send_item.JsonData["REMOVED"] = JArray.FromObject(this.Map_Removed); // 삭제된 맵의 Idx 리스트를 "REMOVED" 키로 전송
 
             return send_item;
@@ -292,18 +285,73 @@ namespace client_supervisor
             }
             Console.WriteLine();
         }
-        // 1-1-0 : 클라이언트(마이크) 목록 요청, 핀 리스트
+        // 1-1-0 : 클라이언트(마이크) 목록 요청, 핀 리스트, 핀에 대해서 매번 모든 내용 수신
+        //private void Recv_Req_Mic_List(WorkItem item)
+        //{
+        //    Console.WriteLine($"[{item.Protocol}] 핀 목록 수신");
+
+        //    this.mainCanvas.Children.Clear();
+        //    this.PinList.Clear();
+
+        //    JArray arr_data = item.JsonData["DATA"] as JArray;
+
+        //    foreach (JObject obj_pin in arr_data)
+        //    {
+        //        ClientPin pin_new = new ClientPin
+        //        {
+        //            Idx = obj_pin["NUM_PIN"].Value<int>(),
+        //            Name_Pin = obj_pin["NAME_PIN"].Value<string>(),
+        //            MapIndex = obj_pin["NUM_MAP"].Value<int>(),
+        //            Name_Location = obj_pin["NAME_LOC"].Value<string>(),
+        //            Name_Manager = obj_pin["NAME_MANAGER"].Value<string>(),
+        //            PosX = obj_pin["POS_X"].Value<double>(),
+        //            PosY = obj_pin["POS_Y"].Value<double>(),
+        //            MAC = obj_pin["MAC"].Value<string>(),
+        //            Date_Reg = obj_pin["DATE_REG"].Value<DateTime>(),
+        //            State_Active = obj_pin["STATE_ACTIVE"].Value<bool>(),
+        //            State_Connect = obj_pin["STATE_CONNECT"].Value<bool>()
+        //        };
+
+        //        // 핀 색상 지정
+        //        // 장치가 연결되지 않으면
+        //        if (!pin_new.State_Connect)
+        //        {
+        //            pin_new.ChangeColorMode(STATE_COLOR.OFFLINE);
+        //        }
+        //        else
+        //        {
+        //            // 온라인 상태, 작업중이 아닐 경우
+        //            if (!pin_new.State_Active)
+        //            {
+        //                pin_new.ChangeColorMode(STATE_COLOR.STANDBY);
+        //            }
+        //            else
+        //            {
+        //                pin_new.ChangeColorMode(STATE_COLOR.WORKING);
+        //            }
+        //        }
+
+        //        this.PinAddToCanvas(pin_new, true);
+        //    }
+
+        //    Console.WriteLine($"핀 목록 갯수 : {this.PinList.Count}");
+        //    foreach(ClientPin pin in this.PinList)
+        //    {
+        //        Console.WriteLine($"핀 이름 {pin.Name} - 번호 : {pin.Idx} - 지도번호 : {pin.MapIndex} - MAC : {pin.MAC} - Connect : {pin.State_Connect} - Active : {pin.State_Active}");
+        //    }
+        //}
         private void Recv_Req_Mic_List(WorkItem item)
         {
             Console.WriteLine($"[{item.Protocol}] 핀 목록 수신");
 
-            this.mainCanvas.Children.Clear();
-            this.PinList.Clear();
-
             JArray arr_data = item.JsonData["DATA"] as JArray;
 
+            // 1. 새로 수신된 핀 데이터를 임시 리스트에 파싱
+            List<ClientPin> newPins = new List<ClientPin>();
             foreach (JObject obj_pin in arr_data)
             {
+                // 여기서는 기존 PinUIElement는 할당하지 않습니다.
+                // PinAddToCanvas에서 생성하거나 재활용할 것이기 때문입니다.
                 ClientPin pin_new = new ClientPin
                 {
                     Idx = obj_pin["NUM_PIN"].Value<int>(),
@@ -318,33 +366,60 @@ namespace client_supervisor
                     State_Active = obj_pin["STATE_ACTIVE"].Value<bool>(),
                     State_Connect = obj_pin["STATE_CONNECT"].Value<bool>()
                 };
+                newPins.Add(pin_new);
+            }
 
-                // 핀 색상 지정
-                // 장치가 연결되지 않으면
-                if (!pin_new.State_Connect)
+            // 2. 삭제된 핀 처리
+            // 기존 PinList에서 newPins에 없는 핀들을 찾아서 제거
+            var pinsToRemove = this.PinList.Where(existingPin => !newPins.Any(newPin => newPin.Equals(existingPin))).ToList();
+            foreach (ClientPin pinToRemove in pinsToRemove)
+            {
+                Console.WriteLine($"[삭제] 핀: {pinToRemove.Name_Pin} ({pinToRemove.MAC})");
+                this.PinList.Remove(pinToRemove); // ObservableCollection에서 제거 -> UI도 자동으로 업데이트됨 (만약 바인딩되어 있다면)
+                mainCanvas.Children.Remove(pinToRemove); // Canvas에서 UI 요소 직접 제거
+            }
+
+            // 3. 추가되거나 변경된 핀 처리
+            foreach (ClientPin newPin in newPins)
+            {
+                // 기존 PinList에서 동일한 MAC을 가진 핀을 찾음
+                ClientPin? existingPin = this.PinList.FirstOrDefault(p => p.MAC == newPin.MAC);
+
+                if (existingPin == null)
                 {
-                    pin_new.ChangeColorMode(STATE_COLOR.OFFLINE);
+                    // 추가된 핀: PinList에 없고 새로운 목록에 있는 핀
+                    Console.WriteLine($"[추가] 핀: {newPin.Name_Pin} ({newPin.MAC})");
+                    this.PinList.Add(newPin); // ObservableCollection에 추가
+                    PinAddToCanvas(newPin, false); // Canvas에 UI 요소 추가 (PinList에는 이미 추가했으므로 false)
+                    newPin.ChangeColorMode(STATE_COLOR.STANDBY);
                 }
                 else
                 {
-                    // 온라인 상태, 작업중이 아닐 경우
-                    if (!pin_new.State_Active)
+                    // 변경된 핀: PinList에도 있고 새로운 목록에도 있는 핀. 변경사항이 있는지 확인.
+                    if (existingPin.HasChanged(newPin))
                     {
-                        pin_new.ChangeColorMode(STATE_COLOR.STANDBY);
+                        Console.WriteLine($"[변경] 핀: {existingPin.Name_Pin} ({existingPin.MAC})");
+                        // 기존 핀의 속성 업데이트
+                        existingPin.Idx = newPin.Idx;
+                        existingPin.Name_Pin = newPin.Name_Pin;
+                        existingPin.MapIndex = newPin.MapIndex;
+                        existingPin.Name_Location = newPin.Name_Location;
+                        existingPin.Name_Manager = newPin.Name_Manager;
+                        existingPin.PosX = newPin.PosX;
+                        existingPin.PosY = newPin.PosY;
+                        existingPin.Date_Reg = newPin.Date_Reg;
+                        // 상태 속성 업데이트는 INotifyPropertyChanged에 의해 색상 변경까지 자동으로 트리거
+                        existingPin.State_Active = newPin.State_Active;
+                        existingPin.State_Connect = newPin.State_Connect;
                     }
-                    else
-                    {
-                        pin_new.ChangeColorMode(STATE_COLOR.WORKING);
-                    }
+                    // 변경 사항이 없는 핀은 아무것도 하지 않음
                 }
-
-                this.PinAddToCanvas(pin_new, true);
             }
 
-            Console.WriteLine($"핀 목록 갯수 : {this.PinList.Count}");
-            foreach(ClientPin pin in this.PinList)
+            Console.WriteLine($"최종 핀 목록 갯수 : {this.PinList.Count}");
+            foreach (ClientPin pin in this.PinList)
             {
-                Console.WriteLine($"핀 이름 {pin.Name} - 번호 : {pin.Idx} - 지도번호 : {pin.MapIndex} - MAC : {pin.MAC} - Connect : {pin.State_Connect} - Active : {pin.State_Active}");
+                Console.WriteLine($"핀 이름 {pin.Name_Pin} - 번호 : {pin.Idx} - 지도번호 : {pin.MapIndex} - MAC : {pin.MAC} - Connect : {pin.State_Connect} - Active : {pin.State_Active}");
             }
         }
         // 1-2-0 : 이상상황 발생한 핀에 대하여 데이터 수신, 클라이언트가 요청하면 일일 전체 목록 요청 후 수신(처음 접속할 때만 요청)
@@ -379,29 +454,13 @@ namespace client_supervisor
                 DateTime time_start = DateTime.MinValue; // 기본값 설정
                 if (obj_ano.TryGetValue("DATE_START", out JToken dateStartToken) && dateStartToken.Type != JTokenType.Null)
                 {
-                    if (!DateTime.TryParse(dateStartToken.ToString(), out time_start))
-                    {
-                        // 파싱 실패 시, time_start는 DateTime.MinValue로 유지되거나 원하는 다른 기본값 설정
-                        //Console.WriteLine($"[경고] DATE_START '{dateStartToken}' 파싱 실패! DateTime.MinValue로 설정됩니다.");
-                    }
-                }
-                else
-                {
-                    //Console.WriteLine("[정보] DATE_START 키가 없거나 값이 null입니다. DateTime.MinValue로 설정됩니다.");
+                    DateTime.TryParse(dateStartToken.ToString(), out time_start);
                 }
 
                 DateTime time_end = DateTime.MinValue; // 기본값 설정
                 if (obj_ano.TryGetValue("DATE_END", out JToken dateEndToken) && dateEndToken.Type != JTokenType.Null)
                 {
-                    if (!DateTime.TryParse(dateEndToken.ToString(), out time_end))
-                    {
-                        // 파싱 실패 시, time_end는 DateTime.MinValue로 유지되거나 원하는 다른 기본값 설정
-                        //Console.WriteLine($"[경고] DATE_END '{dateEndToken}' 파싱 실패! DateTime.MinValue로 설정됩니다.");
-                    }
-                }
-                else
-                {
-                    //Console.WriteLine("[정보] DATE_END 키가 없거나 값이 null입니다. DateTime.MinValue로 설정됩니다.");
+                    DateTime.TryParse(dateEndToken.ToString(), out time_end);
                 }
 
                 this.List_Daily_Anomaly.Add(new AnomalyLog(idx, pin_new, time_start, code_error, name_map, worker, time_end, memo, code_anomaly));
@@ -433,12 +492,10 @@ namespace client_supervisor
             ObservableCollection<AnomalyLog> anomaly_logs = new ObservableCollection<AnomalyLog>();
 
             // 서버에서 수신받은 데이터를 목록에 넣기
-            JArray arr_data = item.JsonData["DATA"] as JArray;
+            JArray? arr_data = item.JsonData["DATA"] as JArray;
 
             foreach (JObject obj_ano in arr_data)
             {
-                //Console.WriteLine($"obj_ano : {obj_ano}");
-
                 ClientPin pin_new = new ClientPin // 핀 정보
                 {
                     Idx = obj_ano["NUM_PIN"].Value<int>(),
