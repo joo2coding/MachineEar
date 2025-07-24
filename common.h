@@ -38,7 +38,7 @@ struct ConnInfo  // 접속정보 구조체
 {
 	SOCKET socket = INVALID_SOCKET;            // 클라이언트 소켓
 	string mac;
-	int num_pin = -1;             
+	int num_pin = 0;             
 	int client_id = -1;          // 클라이언트 ID (0=마이크, 1=관리자, 2= AI)
 };
 

@@ -55,11 +55,11 @@ WorkItem recv_parse(SOCKET& clientSock, vector<unsigned char>& buf_recv)
         size_t offeset = 8 + len_total;
         buf_recv = vector<unsigned char>(buf_recv.begin() + offeset, buf_recv.end());
         
-
+        json recv_json = json::parse(jsonStr);
         try
         {
             // 수신 JSON을 파싱해서 구조화
-            json recv_json = json::parse(jsonStr);
+            
             string protocol = recv_json["PROTOCOL"]; // 프로토콜 값 추출
 
             wstring ws = Utf8ToUtf16(jsonStr);
@@ -68,16 +68,17 @@ WorkItem recv_parse(SOCKET& clientSock, vector<unsigned char>& buf_recv)
 
             //cout << "[Recv] :" << jsonStr << endl;
            
+            cout << endl;
             wcout << L"[ Recv from " << clientSock << " ] Recv Message : " << ws << endl;
             cout << "-----------------------------------------------------------------------------------------" << endl;
-          
-
+            cout << endl;
 
             return WorkItem({ clientSock, protocol, recv_json, payload });
         }
         catch (const exception& e)   // JSON 파싱 등 예외 발생 시
         {
-            cerr << "JSON 파싱 실패: " << e.what() << endl;
+            cerr << "[Recv - Socket : " << clientSock << " - " << recv_json["PROTOCOL"] << " ] JSON 파싱 실패: " << e.what() << endl;
+            cerr << "[Recv - Error] Total Bytes : " << len_total << " - Json Bytes : " << len_json << endl;
             // 필요한 경우 에러 메시지 송신 가능
         }
     }
@@ -86,6 +87,8 @@ WorkItem recv_parse(SOCKET& clientSock, vector<unsigned char>& buf_recv)
 // 송신
 void send_workitem(WorkItem& item)
 {
+    if (item.protocol.empty()) return;
+
     item.json_conv["PROTOCOL"] = item.protocol; // 응답 JSON에 프로토콜 추가
 
     string sendStr = item.json_conv.dump(); // JSON 객체를 문자열로 변환
@@ -137,6 +140,7 @@ void send_workitem(WorkItem& item)
 
     wcout << L"[ Send to " << item.socket << " ] Send Message :\n" << ws << endl;
     cout << "-----------------------------------------------------------------------------------------" << endl;
+    cout << endl;
 
     /*wstring ws = Utf8ToUtf16(sendStr);
  
@@ -165,7 +169,7 @@ void client_thread(SOCKET clientSock)
         WorkItem recv_item = recv_parse(clientSock, buf_recv);
         if (recv_item.protocol.empty()) // 수신 실패 또는 연결 종료
         {
-            cerr << "[Error] 클라이언트 연결 종료 또는 수신 오류" << endl;
+            cerr << "[Error] 클라이언트 연결 종료 또는 수신 오류 / 소켓 : " << clientSock << endl;
             break; // 루프 종료
 		}
     
@@ -218,7 +222,7 @@ void refresh_conninfo()
     cout << endl;
     for (ConnInfo conn : list_conninfo) 
     {
-        cout << "종류 : " << conn.client_id << " - 소켓 : " << conn.socket << endl;
+        cout << "종류 : " << conn.client_id << " - 소켓 : " << conn.socket << " - 핀 번호 : " << conn.num_pin << " - MAC : " << conn.mac << endl;
     }
 
     cout << endl;
