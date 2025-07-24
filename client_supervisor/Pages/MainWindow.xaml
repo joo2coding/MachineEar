@@ -7,6 +7,10 @@
         mc:Ignorable="d"
         Title="MachineEar - Supervisor" Height="900" Width="1200" MinWidth="1200" MinHeight="900">
 
+    <Window.Resources>
+        <local:TimeEndConverter x:Key="timeEndDefaultHider"/>
+    </Window.Resources>
+
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="File">
@@ -19,7 +23,7 @@
             </MenuItem>
 
             <MenuItem Header="Log">
-                <MenuItem x:Name="Header_Log" Header="이전 기록" Click="pb_log_Click"/>
+                <MenuItem x:Name="Header_Log" Header="이전 기록" Click="pb_log_Click" IsEnabled="False"/>
             </MenuItem>
 
             <MenuItem Header="Network">
@@ -70,8 +74,8 @@
 
             <Grid Grid.Row="0" Margin="5,0,0,0" Grid.Column="1">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,5,0">
-                    <Button x:Name="PbStateDeactiveAll" Content="전체 정지" Margin="0,0,5,0" Click="pbStateDectiveAll_Click"></Button>
-                    <Button x:Name="pbStateactiveAll" Content="전체 가동" Margin="5,0,0,0" Click="pbStateActiveAll_Click"></Button>
+                    <Button x:Name="PbStateDeactiveAll" Content="전체 정지" Margin="0,0,5,0" Click="pbStateDectiveAll_Click" IsEnabled="False"></Button>
+                    <Button x:Name="pbStateactiveAll" Content="전체 가동" Margin="5,0,0,0" Click="pbStateActiveAll_Click" IsEnabled="False"></Button>
                 </StackPanel>
             </Grid>
 
@@ -126,9 +130,9 @@
                 </Border>
 
                 <Border BorderBrush="Gray" BorderThickness="1" Grid.Row="1" Margin="0,5,5,0">
-                    <DataGrid x:Name="table_ev_curr" AutoGenerateColumns="False" CanUserAddRows="False" ItemsSource="{Binding List_Daily_Anomaly}">
+                    <DataGrid x:Name="table_daily" AutoGenerateColumns="False" CanUserAddRows="False" ItemsSource="{Binding List_Daily_Anomaly}" SelectionChanged="table_daily_SelectionChanged">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="No." Binding="{Binding Path=time_start}" Width="0.075*">
+                            <DataGridTextColumn Header="No." Binding="{Binding Path=Idx}" IsReadOnly="True" Width="0.075*">
                                 <DataGridTextColumn.HeaderStyle>
                                     <Style TargetType="{x:Type DataGridColumnHeader}">
                                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -137,7 +141,7 @@
                                 </DataGridTextColumn.HeaderStyle>
                             </DataGridTextColumn>
 
-                            <DataGridTextColumn Header="발생일시" Binding="{Binding Path=time_start}" Width="0.2*">
+                            <DataGridTextColumn Header="핀 번호" Binding="{Binding Path=Pin.Idx}" IsReadOnly="True" Width="0.1*">
                                 <DataGridTextColumn.HeaderStyle>
                                     <Style TargetType="{x:Type DataGridColumnHeader}">
                                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -146,7 +150,7 @@
                                 </DataGridTextColumn.HeaderStyle>
                             </DataGridTextColumn>
 
-                            <DataGridTextColumn Header="처리일시" Binding="{Binding Path=time_end}" Width="0.2*">
+                            <DataGridTextColumn Header="발생일시" Binding="{Binding Path=Time_Start}" IsReadOnly="True" Width="0.2*">
                                 <DataGridTextColumn.HeaderStyle>
                                     <Style TargetType="{x:Type DataGridColumnHeader}">
                                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -155,7 +159,7 @@
                                 </DataGridTextColumn.HeaderStyle>
                             </DataGridTextColumn>
 
-                            <DataGridTextColumn Header="발생위치" Binding="{Binding Path=time_start}" Width="0.2*">
+                            <DataGridTextColumn Header="처리일시" Binding="{Binding Path=Time_End, Converter={StaticResource timeEndDefaultHider}}" IsReadOnly="True" Width="0.2*">
                                 <DataGridTextColumn.HeaderStyle>
                                     <Style TargetType="{x:Type DataGridColumnHeader}">
                                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -164,7 +168,16 @@
                                 </DataGridTextColumn.HeaderStyle>
                             </DataGridTextColumn>
 
-                            <DataGridTextColumn Header="발생원인" Binding="{Binding Path=time_start}" Width="0.2*">
+                            <DataGridTextColumn Header="발생위치" Binding="{Binding Path=Name_Loc}" IsReadOnly="True" Width="0.2*">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="{x:Type DataGridColumnHeader}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="발생원인" Binding="{Binding Path=Str_Error}" IsReadOnly="True" Width="0.2*">
                                 <DataGridTextColumn.HeaderStyle>
                                     <Style TargetType="{x:Type DataGridColumnHeader}">
                                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
@@ -297,7 +310,6 @@
                                                 <Label x:Name="content_proc_error"  Content="발생원인" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
                                             </Border>
                                             <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="2" Grid.Column="1">
-
                                                 <Label x:Name="label_proc_kind"  VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
                                             </Border>
 

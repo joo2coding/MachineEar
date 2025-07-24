@@ -23,6 +23,7 @@ namespace client_supervisor
     /// 
     public partial class Window_Manage_Map : Window
     {
+        string path_maps = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps");
         public ObservableCollection<MapSector> MapSectors { get; set; }
         public ObservableCollection<MapSector> Capture_MapSectors { get; set; }     // 캡쳐, 이걸로 수정, 적용을 누르면 이 값을 덮어씌움
         public Window_Manage_Map(ObservableCollection<MapSector> mapSectors)        
@@ -66,51 +67,13 @@ namespace client_supervisor
                     DownCommand = new RelayCommand(OnDownCommandExecuted),
                     IsSelected = false
                 };
-                long file_size = File.Exists(newSector.Path) ? new FileInfo(newSector.Path).Length : 0;
+                long file_size = File.Exists(newSector.Path_Origin) ? new FileInfo(newSector.Path_Origin).Length : 0;
                 newSector.SizeB = (int)file_size;
+                newSector.Path = System.IO.Path.Combine(this.path_maps, System.IO.Path.GetFileName(newSector.Path_Origin));
 
                 Capture_MapSectors.Add(newSector);
             }
         }
-
-        // 인덱스 번호를 각 순번에 맞게 업데이트
-        //private void UpdateIndices()
-        //{
-        //    for (int i = 0; i < Capture_MapSectors.Count; i++)
-        //    {
-        //        // UI 업데이트를 위해 Idx 속성의 setter를 통해 값 변경
-        //        Capture_MapSectors[i].Idx = i + 1;
-        //    }
-        //}
-
-        // 순서에서 위쪽 화살표 클릭 시 실행
-        //private void OnDownCommandExecuted(object parameter) // object로 받음
-        //{
-        //    if (parameter is MapSector sectorToMove)
-        //    {
-        //        int oldIndex = Capture_MapSectors.IndexOf(sectorToMove);
-        //        if (oldIndex < Capture_MapSectors.Count - 1)
-        //        {
-        //            Capture_MapSectors.Move(oldIndex, oldIndex + 1);
-        //            //UpdateIndices();
-        //        }
-        //    }
-        //}
-
-        //// 순서에서 아래쪽 화살표 클릭 시 실행
-        //private void OnUpCommandExecuted(object parameter)
-        //{
-        //    if (parameter is MapSector sectorToMove)
-        //    {
-        //        int oldIndex = Capture_MapSectors.IndexOf(sectorToMove);
-        //        if (oldIndex > 0)
-        //        {
-        //            Capture_MapSectors.Move(oldIndex, oldIndex - 1);
-        //            //UpdateIndices();
-        //        }
-        //    }
-        //}
-
         private void OnUpCommandExecuted(object parameter)
         {
             if (parameter is MapSector sectorToMove)
@@ -120,20 +83,15 @@ namespace client_supervisor
                 {
                     int newIdx = oldIdx - 1; // 새로운 Idx 값
 
-                    // 새로운 Idx 값을 가진 항목이 있는지 찾습니다.
                     MapSector existingSectorAtNewIdx = Capture_MapSectors.FirstOrDefault(s => s.Idx == newIdx);
 
                     if (existingSectorAtNewIdx != null)
                     {
-                        // 있으면, 그 항목의 Idx를 기존 Idx 값으로 변경합니다.
+                        // 해당 항목의 Idx를 기존 Idx 값으로 변경
                         existingSectorAtNewIdx.Idx = oldIdx;
                     }
-                    // 그리고 이동하려는 항목의 Idx를 새로운 Idx로 변경합니다.
+                    // 이동하려는 항목의 Idx를 새로운 Idx로 변경
                     sectorToMove.Idx = newIdx;
-
-                    // UI에 즉시 반영되도록 컬렉션을 정렬해야 할 수 있습니다.
-                    // DataGrid가 Idx 컬럼으로 정렬되어 있지 않다면 필요합니다.
-                    // SortCaptureMapSectorsByIdx(); // 이 메서드는 아래에 예시
                 }
             }
         }
@@ -142,25 +100,22 @@ namespace client_supervisor
         {
             if (parameter is MapSector sectorToMove)
             {
-                int oldIdx = sectorToMove.Idx; // 현재 Idx 값
-                                               // 최대 Idx 값은 컬렉션의 Count - 1 이거나, 고정된 최대값이 있다면 그 값을 사용
-                int maxIdx = Capture_MapSectors.Count; // 또는 정의된 최대값
+                int oldIdx = sectorToMove.Idx; 
+                int maxIdx = Capture_MapSectors.Count; 
 
                 if (oldIdx < maxIdx) // Idx가 최대값보다 작을 때만 '아래로' 이동 가능
                 {
                     int newIdx = oldIdx + 1; // 새로운 Idx 값
 
-                    // 새로운 Idx 값을 가진 항목이 있는지 찾습니다.
                     MapSector existingSectorAtNewIdx = Capture_MapSectors.FirstOrDefault(s => s.Idx == newIdx);
 
                     if (existingSectorAtNewIdx != null)
                     {
-                        // 있으면, 그 항목의 Idx를 기존 Idx 값으로 변경합니다.
+                        // 해당 항목의 Idx를 기존 Idx 값으로 변경
                         existingSectorAtNewIdx.Idx = oldIdx;
                     }
-                    // 그리고 이동하려는 항목의 Idx를 새로운 Idx로 변경합니다.
+                    // 이동하려는 항목의 Idx를 새로운 Idx로 변경
                     sectorToMove.Idx = newIdx;
-
                 }
             }
         }

@@ -168,7 +168,6 @@ namespace client_supervisor
                 // 인덱스/객체 다 사용 가능
                 int idx = selectedLog.Idx;
                 this.idx_selected = table_total.SelectedIndex;
-                //Console.WriteLine($"선택: Idx={idx}, 행={index}");
                 
                 label_data_map.Content = this.AnomalyLogs[this.idx_selected].Map_Name.ToString();
                 label_data_pin.Content = this.AnomalyLogs[this.idx_selected].Pin.Idx.ToString();
@@ -185,22 +184,11 @@ namespace client_supervisor
                 textbox_proc_manager.IsEnabled = true;
                 textbox_proc_memo.IsEnabled = true;
 
-                //Console.WriteLine($"Code_Anomaly: {this.AnomalyLogs[this.idx_selected].Code_Anomaly}");
-
                 if (wrap_kind_anomaly.Children.Count == 0)this.CreateRadioButtons_Click(this.dict_proc);
                 if(pb_proc_commit.IsEnabled == false) pb_proc_commit.IsEnabled = true; // 적용 버튼 활성화
                 if(pb_remove_checked.IsEnabled == false) pb_remove_checked.IsEnabled = true; // 선택 삭제 버튼 활성화
                 if(pb_update_checked.IsEnabled == false) pb_update_checked.IsEnabled = true; // 처리 완료 버튼 활성화
 
-                //for(int i = 0; i < wrap_kind_anomaly.Children.Count; i++)
-                //{
-                //    RadioButton radioButton = wrap_kind_anomaly.Children[i] as RadioButton;
-                //    if (radioButton != null)
-                //    {
-                //        // 라디오 버튼의 인덱스와 로그의 Code_Anomaly를 비교하여 선택 상태 설정
-                //        radioButton.IsChecked = (i + 2) == this.AnomalyLogs[this.idx_selected].Code_Anomaly;
-                //    }
-                //}
                 this.RadioGroupChangeState(true); // 라디오 버튼 활성화
 
                 int targetIndex = this.AnomalyLogs[this.idx_selected].Code_Anomaly - 2;

@@ -32,6 +32,8 @@ namespace client_supervisor
             InitializeComponent();
             ComboBox_MAC.Items.Clear();
             this.macList = macList;
+
+            if (this.macList.Count == 0) ComboBox_MAC.IsEnabled = false;
             
             // 콤보박스에 MAC 주소 목록 추가
             foreach (var mac in macList)

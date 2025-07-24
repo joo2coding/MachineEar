@@ -35,7 +35,6 @@ namespace client_supervisor
         string path_server = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "server_address.json");
         string path_maps = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps");
         string path_map_meta = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps/meta_maps.json");
-        string path_map_path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "maps/path_maps.json");
 
         private DispatcherTimer? timer_curr;
         private TcpClientService clientService;
@@ -83,9 +82,10 @@ namespace client_supervisor
             this.isPinModeEnabled = false;      // 핀 추가 값 초기화
 
             this.load_serveraddr(this.path_server);
+            this.DataContext = this;
 
-            Header_Manage_Map.IsEnabled = true;
-            this.MapSectors = this.load_maplist(true);      // 지도 목록 불러오기
+            //Header_Manage_Map.IsEnabled = true;
+            //this.MapSectors = this.load_maplist(true);      // 지도 목록 불러오기
         }
         /*-------------------------------------------------------------------*/
         // 로컬 json 파일 제어
@@ -150,27 +150,37 @@ namespace client_supervisor
                 this.MapSectors = MapSectors_recv;
 
                 // 4. 서버에 추가된 도면 파일 전송
+
+                Console.WriteLine($"파일 추가 갯수 : {this.Map_Add.Count}");
                 foreach(MapSector map_add in this.Map_Add)
                 {
-                    item.Protocol = "1-3-2";
-                    item.JsonData["INDEX_MAP"] = map_add.Idx;
-                    item.JsonData["NAME_MAP"] = map_add.Name_Map;
+                    WorkItem item_send = new WorkItem();
+
+                    Console.WriteLine($"인덱스 : {map_add.Idx}");
+
+                    item_send.Protocol = "1-3-2";
+                    item_send.JsonData["INDEX_MAP"] = map_add.Idx;
+                    item_send.JsonData["NAME_MAP"] = map_add.Name_Map;
 
 
                     JObject obj = new JObject();
                     obj["NAME"] = System.IO.Path.GetFileName(map_add.Path_Origin);
+                    FileInfo info = new FileInfo(map_add.Path_Origin);
                     obj["SIZE"] = map_add.SizeB;
+                    obj["PATH"] = map_add.Path;
 
-                    item.JsonData["__META__"] = obj;
-                    item.BinaryData = File.ReadAllBytes(map_add.Path_Origin);
+                    item_send.JsonData["__META__"] = obj;
+                    item_send.BinaryData = File.ReadAllBytes(map_add.Path_Origin);
 
-                    await this.ExcuteCommand_Send(item);
+                    await this.ExcuteCommand_Send(item_send);
                 }
 
                 // 파일 저장
                 this.save_maplist();
+                int delay = this.MapSectors.Count * 200;        // 지도 갯수만큼 로딩시간
 
                 // 지도 목록 다시 요청
+                Thread.Sleep(delay);
                 item.JsonData = new JObject();
                 item.Protocol = "1-3-0";
                 DataReceivedEventArgs send_130 = await this.ExcuteCommand_SendAndWait(item, item.Protocol);
@@ -280,6 +290,9 @@ namespace client_supervisor
 
             Header_Conn.IsEnabled = false;
             Header_Disconn.IsEnabled = true;
+
+            PbStateDeactiveAll.IsEnabled = true;
+            pbStateactiveAll.IsEnabled = true;
             WorkItem send_item = new();
 
             // 접속 요청 송신 및 수신
@@ -300,10 +313,10 @@ namespace client_supervisor
                 DataReceivedEventArgs send_102 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
                 this.Act_SendAndRecv(send_102);
 
-                // 등록되지 않은 MAC 목록 요청
-                send_item.Protocol = "1-0-3";
-                DataReceivedEventArgs send_103 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
-                this.Act_SendAndRecv(send_103);
+                //// 등록되지 않은 MAC 목록 요청
+                //send_item.Protocol = "1-0-3";
+                //DataReceivedEventArgs send_103 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol);
+                //this.Act_SendAndRecv(send_103);
 
                 // 지도 목록 요청
                 send_item.Protocol = "1-3-0";
@@ -346,6 +359,9 @@ namespace client_supervisor
             Header_Manage_Map.IsEnabled = false;
             Header_Manage_Pin.IsEnabled = false;
             Header_Log.IsEnabled = false;
+
+            PbStateDeactiveAll.IsEnabled = false;
+            pbStateactiveAll.IsEnabled = false;
 
             this.PinList.Clear();
             this.MapSectors.Clear();
@@ -577,8 +593,15 @@ namespace client_supervisor
             double actualX = correctedX;
             double actualY = correctedY;
 
+            // 등록되지 않은 MAC 목록 요청
+            WorkItem item = new WorkItem();
+            item.Protocol = "1-0-3";
+            DataReceivedEventArgs send_103 = await this.ExcuteCommand_SendAndWait(item, item.Protocol);
+            this.Act_SendAndRecv(send_103);
+
             // 핀 추가 사항 채우기
             Window_Add_Pin add_Pin = new Window_Add_Pin(this.MACList);      // MAC 주소 목록을 전달, 콤보박스에 추가
+
             if (add_Pin.ShowDialog() == true)
             {
                 this.PinList_Add.Clear();
@@ -609,20 +632,16 @@ namespace client_supervisor
                 this.PinList_Add.Add(pin_new);      // 생성 목록에 넣기
 
                 // 서버에 해당 핀 정보 전송
-                WorkItem item = new WorkItem();
                 item.Protocol = "1-3-4";
+                item.JsonData = new JObject();
                 await this.ExcuteCommand_Send(item);
 
                 // 서버 적용 시간 유예
                 Thread.Sleep(50);
 
-                // MAC 리스트 재송신 요청
-                item.Protocol = "1-0-3";
-                DataReceivedEventArgs send_103 = await this.ExcuteCommand_SendAndWait(item, item.Protocol);
-                this.Act_SendAndRecv(send_103);
-
                 // 핀 목록 재요청
                 item.Protocol = "1-1-0";
+                item.JsonData = new JObject();
                 DataReceivedEventArgs send_110 = await this.ExcuteCommand_SendAndWait(item, item.Protocol);
                 this.Act_SendAndRecv(send_110);
             }
@@ -788,9 +807,20 @@ namespace client_supervisor
                 // 핀 클릭 시 세부사항 패널 활성화
                 this.CurrentClickedPin = clickedPin;
 
+                // 지도 이름 확인
+                string name_map = "";
+                foreach(MapSector map in this.MapSectors)
+                {
+                    if(map.Num_Map == clickedPin.MapIndex)
+                    {
+                        name_map = map.Name_Map;
+                        break;
+                    }
+                }
+
                 label_data_pin.Content = clickedPin.Idx;
                 label_data_name.Content = clickedPin.Name_Pin;
-                label_data_map.Content = MapSectors.FirstOrDefault(sector => sector.Idx == clickedPin.MapIndex)?.Name_Map;
+                label_data_map.Content = name_map;
                 label_data_loc.Content = clickedPin.Name_Location;
                 label_data_manager.Content = clickedPin.Name_Manager;
 
@@ -800,6 +830,7 @@ namespace client_supervisor
                     pb_state_active.Content = "";
                     pb_state_active.IsEnabled = false;
                     label_data_state.Content = "서버와 연결되지 않음";
+                    activateDetailPanel(false);
                 }
                 else
                 {
@@ -833,21 +864,11 @@ namespace client_supervisor
                     }
                 }
 
-                // 지도 역시 특정 페이지로 전환
-                for (int i = 0; i < this.MapSectors.Count; i ++)
-                {
-                    if (this.MapSectors[i].Idx == clickedPin.MapIndex)
-                    {
-                        this.idx_map = i;
-                        break;
-                    }
-                }
-
                 foreach (var child in mainCanvas.Children)
                 {
                     if (child is ClientPin pin)
                     {
-                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Idx ? Visibility.Visible : Visibility.Collapsed;
+                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Num_Map ? Visibility.Visible : Visibility.Collapsed;
                     }
                 }
                 this.LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[this.idx_map].Path));
@@ -864,6 +885,13 @@ namespace client_supervisor
             label_data_loc.ClearValue(ContentProperty);
             label_data_manager.ClearValue(ContentProperty);
             label_data_state.ClearValue(ContentProperty);
+
+            label_start_datetime.ClearValue(ContentProperty);
+            label_proc_datetime.ClearValue(ContentProperty);
+            label_proc_kind.ClearValue(ContentProperty);
+
+            activateDetailPanel(false);
+
             pb_state_active.Content = "";
             pb_state_active.IsEnabled = false;
 
@@ -904,6 +932,12 @@ namespace client_supervisor
             send_item.JsonData["STATE_ACTIVE"] = active;
 
             await this.ExcuteCommand_Send(send_item);
+
+            // 핀 상태 다시 요청
+            send_item.Protocol = "1-1-0";
+            send_item.JsonData = new JObject();
+            DataReceivedEventArgs send_110 = await this.ExcuteCommand_SendAndWait(send_item, send_item.Protocol); // 비동기 전송 후 응답 대기
+            this.Act_SendAndRecv(send_110); // 수신된 데이터를 처리합니다.
         }
         // 이미지 불러오기 메서드
         public void LoadImageSafely(string relativeImagePath)
@@ -1039,20 +1073,101 @@ namespace client_supervisor
             }
             else
             {
-                // 빈칸을 다 채웠을 경우, 데이터 송신
-                this.CurrentClickedAnomaly.Worker = textbox_proc_manager.Text;
-                this.CurrentClickedAnomaly.Memo = textbox_proc_memo.Text;
-                this.CurrentClickedAnomaly.Code_Error = radio;
-                this.CurrentClickedAnomaly.Time_End = DateTime.Now;
+                MessageBoxResult confirmResult = MessageBox.Show("적용하시겠습니까?", "처리 데이터 적용", MessageBoxButton.OKCancel, MessageBoxImage.Question);
 
-                WorkItem item = new WorkItem();
-                item.Protocol = "1-2-1";
-                ExcuteCommand_Send(item);
+                if (confirmResult == MessageBoxResult.OK)
+                {
+                    // 빈칸을 다 채웠을 경우, 데이터 송신
+                    this.CurrentClickedAnomaly.Worker = textbox_proc_manager.Text;
+                    this.CurrentClickedAnomaly.Memo = textbox_proc_memo.Text;
+                    this.CurrentClickedAnomaly.Code_Error = radio;
+
+                    // 초기화
+                    DeactiveDetailPanel(wrap_kind_anomaly);
+                    ResetDetailPanel();
+
+                    WorkItem item = new WorkItem();
+                    item.Protocol = "1-2-1";
+                    ExcuteCommand_Send(item);
+
+                    this.List_Daily_Anomaly.Clear();        // 서버로부터 재송신 받기 위한 초기화
+                }
             }
         }
         private void pb_proc_init_Click(object sender, RoutedEventArgs e)
         {
             DeactiveDetailPanel(wrap_kind_anomaly);
+        }
+
+        // DataGrid 선택칸이 바꼈을 때 실행되는 함수
+        private void table_daily_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (table_daily.SelectedItem is AnomalyLog selectedLog)
+            {
+                // 인덱스/객체 다 사용 가능
+                int idx = selectedLog.Idx;
+                int idx_selected = table_daily.SelectedIndex;
+                AnomalyLog clicked = this.List_Daily_Anomaly[idx_selected];
+
+                label_data_map.Content = clicked.Map_Name.ToString();
+                label_data_pin.Content = clicked.Pin.Idx.ToString();
+                label_data_name.Content = clicked.Pin.Name_Pin.ToString();
+                label_data_loc.Content = clicked.Pin.Name_Location.ToString();
+                label_data_manager.Content = clicked.Pin.Name_Manager.ToString();
+                label_start_datetime.Content = clicked.Time_Start.ToString();
+
+                textbox_proc_manager.Text = clicked.Pin.Name_Manager;
+
+
+                if (this.List_Daily_Anomaly[idx_selected].Time_End != default)
+                {
+                    label_proc_datetime.Content = clicked.Time_End.ToString();
+                }
+                
+                label_proc_kind.Content = clicked.Str_Error.ToString();
+                // 처리종류는 라디오버튼 wrap_kind_anomaly
+                textbox_proc_manager.Text = clicked.Worker.ToString();
+                textbox_proc_memo.Text = clicked.Memo.ToString();
+
+                textbox_proc_manager.IsEnabled = true;
+                textbox_proc_memo.IsEnabled = true;
+
+
+                // 에러에 대한 라벨 활성화
+                if (!selectedLog.Pin.State_Connect)
+                {
+                    pb_state_active.Content = "";
+                    pb_state_active.IsEnabled = false;
+                    label_data_state.Content = "서버와 연결되지 않음";
+                    activateDetailPanel(false);
+                }
+                else
+                {
+                    label_data_state.Content = selectedLog.Pin.State_Active ? "작동 중" : "대기 중";
+                    pb_state_active.Content = selectedLog.Pin.State_Active ? "정지" : "작동";
+                    pb_state_active.IsEnabled = true;
+
+                    pb_proc_commit.IsEnabled = true;
+                    pb_proc_init.IsEnabled = true;
+                }
+
+
+                if (wrap_kind_anomaly.Children.Count == 0) this.CreateRadioButtons_Click(this.List_Kind_Anomaly);
+                if (pb_proc_commit.IsEnabled == false) pb_proc_commit.IsEnabled = true; // 적용 버튼 활성화
+
+                this.RadioGroupChangeState(true); // 라디오 버튼 활성화
+
+                int targetIndex = this.List_Daily_Anomaly[idx_selected].Code_Anomaly - 2;
+                if (targetIndex >= 0 && targetIndex < wrap_kind_anomaly.Children.Count)
+                {
+                    if (wrap_kind_anomaly.Children[targetIndex] is RadioButton rb)
+                    {
+                        rb.IsChecked = true;
+                    }
+                }
+
+                this.CurrentClickedAnomaly = selectedLog; // 현재 클릭한 항목에 대하여 주소 저장
+            }
         }
     }
 }

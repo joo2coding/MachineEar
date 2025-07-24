@@ -24,7 +24,7 @@ namespace client_supervisor
             {
                 for(int j = 0; j < tgt.Count; j++)
                 {
-                    if (src[j].Idx == tgt[i].Idx && src[j].Name_Map == tgt[i].Name_Map)
+                    if (src[j].SizeB == tgt[i].SizeB && src[j].Name_Map == tgt[i].Name_Map)
                     {
                         src[i].Num_Map = tgt[j].Num_Map;
                         break;
@@ -54,13 +54,6 @@ namespace client_supervisor
                 File.WriteAllText(this.path_map_meta, "[]");     // 기본 객체 생성 후 파일 저장
             }
 
-            // map의 경로파일이 존재하는지 확인
-            if (!File.Exists(this.path_map_path))
-            {
-                Console.WriteLine("파일 없음, 새로 생성 : map_path.json");
-                File.WriteAllText(this.path_map_path, "[]");     // 기본 객체 생성 후 파일 저장
-            }
-
             ObservableCollection<MapSector> mapSectors = new ObservableCollection<MapSector>();
 
             string read_string = File.ReadAllText(this.path_map_meta);
@@ -74,26 +67,11 @@ namespace client_supervisor
                 map_new.Num_Map = metaObject[j]["NUM_MAP"].Value<int>();
                 map_new.Name_Map = metaObject[j]["NAME"].Value<string>();
                 map_new.Idx = metaObject[j]["IDX"].Value<int>();
+                map_new.SizeB = metaObject[j]["SIZE"].Value<int>();
+                map_new.Path = metaObject[j]["PATH"].Value<string>();
 
 
                 mapSectors.Add(map_new);
-            }
-            
-            string read_path = File.ReadAllText(this.path_map_path);
-            JArray? pathObject = JsonConvert.DeserializeObject<JArray>(read_path);
-            // 경로 파일에서 경로를 읽어와서 mapSectors에 추가
-            for (int i = 0; i < mapSectors.Count; i++)
-            {
-                for (int j = 0; j < pathObject.Count; j++)
-                {
-                    if( mapSectors[i].Num_Map == (int)pathObject[j]["NUM_MAP"])
-                    {
-                        mapSectors[i].Path = (string)pathObject[j]["PATH"];
-                        mapSectors[i].SizeB = (int)pathObject[j]["SIZE"];
-  
-                        break;  // 경로를 찾았으면 더 이상 반복할 필요 없음
-                    }
-                }
             }
 
             // 이미지 목록을 불러왔으면, 이미지를 출력
@@ -112,14 +90,6 @@ namespace client_supervisor
         {
             Console.WriteLine("JSON 저장 시작");
             List<object> list_json = new List<object>();
-            List<object> list_path = new List<object>();
-
-            Console.WriteLine("저장할 데이터 - ");
-            foreach (MapSector map in this.MapSectors)
-            {
-                Console.WriteLine($"지도 번호 : {map.Num_Map} - 지도 이름 : {map.Name_Map} - 인덱스 : {map.Idx} - 경로 : {map.Path} - 경로(로컬원본) : {map.Path_Origin}");
-            }
-
 
             foreach (MapSector mapData in this.MapSectors)
             {
@@ -127,19 +97,10 @@ namespace client_supervisor
                 dict_meta.Add("NUM_MAP", mapData.Num_Map);
                 dict_meta.Add("IDX", mapData.Idx);
                 dict_meta.Add("NAME", mapData.Name_Map);
+                dict_meta.Add("PATH", mapData.Path);
+                dict_meta.Add("SIZE", mapData.SizeB);
 
-                list_json.Add(dict_meta);
-
-                // 경로 정보 저장
-                Dictionary<string, object> dict_path = new Dictionary<string, object>();
-
-                dict_path.Add("NUM_MAP", mapData.Num_Map);
-                dict_path.Add("PATH", mapData.Path);
-                string fullPathForSize = mapData.Path;
-                long file_size = File.Exists(fullPathForSize) ? new FileInfo(fullPathForSize).Length : 0;
-                dict_path.Add("SIZE", file_size);
-
-                list_path.Add(dict_path);
+                list_json.Add(dict_meta);               
             }
 
             try
@@ -147,10 +108,6 @@ namespace client_supervisor
                 string json = JsonConvert.SerializeObject(list_json, Formatting.Indented); // 가독성을 위해 Indented 옵션 추가
                 File.WriteAllText(this.path_map_meta, json);
                 Console.WriteLine($"  -> 메타 JSON 파일 저장 성공: {this.path_map_meta}");
-
-                string path_json = JsonConvert.SerializeObject(list_path, Formatting.Indented);
-                File.WriteAllText(this.path_map_path, path_json);
-                Console.WriteLine($"  -> 경로 JSON 파일 저장 성공: {this.path_map_path}");
             }
             catch (Exception ex)
             {
@@ -158,8 +115,6 @@ namespace client_supervisor
 
             }
         }
-
-       
 
         public void Compare_Maplist(ObservableCollection<MapSector> src, ObservableCollection<MapSector> tgt)
         {
@@ -188,28 +143,40 @@ namespace client_supervisor
         }
         public void Add_Maplist(ObservableCollection<MapSector> src, ObservableCollection<MapSector> tgt, bool filecopy = true)
         {
-            Console.WriteLine("지도 동기화 시작 - 추가");
+            this.Map_Add.Clear();
 
+            Console.WriteLine("지도 동기화 시작 - 추가");
+            Console.WriteLine($"원본 갯수 : {src.Count} - 수정 갯수 : {tgt.Count}");
             for (int i = 0; i < tgt.Count; i++)
             {
-                //Console.WriteLine($"현재 항목 : {item.Name} ({item.Path})");
+                Console.WriteLine($"{i}. 경로 : {tgt[i].Path} - {tgt[i].Path_Origin}");
+
                 // 캡쳐 기준 해당 항목이 없는 경우 또는 캡쳐 기준 갯수가 하나도 없는 경우 추가
-                if (!src.Contains(tgt[i]))
+                bool flag_in = false;
+                foreach (MapSector map in src)
                 {
-                    src.Add(tgt[i]);
-                    this.Map_Add.Add(tgt[i].Copy());          // 추가된 사항에 대해서 리스트에 추가
-                    Console.WriteLine($"추가 핀 번호 : {tgt[i].Num_Map}");
+                    if (map.Idx == tgt[i].Idx)
+                    {
+                        flag_in = true;
+                        break;
+                    }
+                }
+
+                if (flag_in == false)
+                {
+                    src.Add(tgt[i].Copy());
+
+                    this.Map_Add.Add(tgt[i]);          // 추가된 사항에 대해서 리스트에 추가
+                    Console.WriteLine($"추가 핀 번호 : {tgt[i].Idx}");
                     if (filecopy)
                     {
-                        string targetFilePath = "";
-                        if (tgt[i].Path_Origin != "") targetFilePath = System.IO.Path.Combine(this.path_maps, System.IO.Path.GetFileName(tgt[i].Path_Origin));
+                        
                         if (File.Exists(tgt[i].Path_Origin))
                         {
-                            Console.WriteLine($"원본 경로 : {tgt[i].Path_Origin}");
-                            File.Copy(tgt[i].Path_Origin, targetFilePath, true);
-                            src[i].Path = targetFilePath; // 복사한 파일의 경로를 업데이트
+                            Console.WriteLine($"추가된 경로 : {tgt[i].Path} - {tgt[i].Path_Origin}");
+                            File.Copy(src.Last().Path_Origin, src.Last().Path, true);
                         }
-                        Console.WriteLine($"  추가 변동사항 발생, 항목 추가 및 파일 복사 시도 : {tgt[i].Name_Map} ({targetFilePath})");
+                        Console.WriteLine($"  추가 변동사항 발생, 항목 추가 및 파일 복사 시도 : {src.Last().Name_Map} ({src.Last().Path}) - ({src.Last().SizeB})");
                     }
                 }
             }

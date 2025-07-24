@@ -65,9 +65,21 @@ namespace client_supervisor
                     Name_Manager = m.Name_Manager,
                     Mode_Color = m.Mode_Color,
                     IsSelected = false,
-                    Name_Map = MapSectors.FirstOrDefault(sector => sector.Idx == m.MapIndex)?.Name_Map
+                    
                 })
             );
+
+            for(int i = 0; i < this.Capture_PinList.Count; i++)
+            {
+                foreach (MapSector map in this.MapSectors)
+                {
+                    if (map.Num_Map == this.Capture_PinList[i].MapIndex)
+                    {
+                        this.Capture_PinList[i].Name_Map = map.Name_Map;
+                        break;
+                    }
+                }
+            }
 
             this.DataContext = this;            
         }
