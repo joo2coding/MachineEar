@@ -5,7 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:client_supervisor"
         mc:Ignorable="d"
-        Title="MachineEar - Supervisor" Height="900" Width="1200" MinWidth="1200" MinHeight="900">
+        Title="MachineEar - Supervisor" Height="900" Width="1200">
 
     <Window.Resources>
         <local:TimeEndConverter x:Key="timeEndDefaultHider"/>

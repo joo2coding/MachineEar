@@ -464,18 +464,6 @@ namespace client_supervisor
                         }
                     }
                 }
-
-                // 맨 앞에 넣기, 내림차순 정렬때문
-                //this.List_Daily_Anomaly.Insert(0, new AnomalyLog(idx, pin_new, time_start, code_error, name_map, worker, time_end, memo, code_anomaly));
-                //this.List_Daily_Anomaly.First().Name_Loc = pin_new.Name_Location;
-                //// 에러 코드를 문자열로 치환
-                //foreach (var val in this.List_Kind_Error)
-                //{
-                //    if(val.Key == code_error)
-                //    {
-                //        this.List_Daily_Anomaly.First().Str_Error = val.Value;
-                //    }
-                //}
             }
 
             // 핀 색상 업데이트
@@ -487,10 +475,16 @@ namespace client_supervisor
                 for (int j = 0; j < this.List_Daily_Anomaly.Count; j++)
                 {
                     // 최신으로부터 수신하여 현재 연결된 핀과 같은 핀이 존재할 경우, 색상 변경
-                    if (this.List_Daily_Anomaly[j].Pin.Idx == this.PinList[i].Idx && this.List_Daily_Anomaly[j].Code_Anomaly == 1)
-                    {
-                        this.PinList[i].ChangeColorMode(STATE_COLOR.ANOMALY);
-                        this.PinList[i].State_Active = false;
+                    if (this.List_Daily_Anomaly[j].Pin.Idx == this.PinList[i].Idx){
+                        if (this.List_Daily_Anomaly[j].Code_Anomaly == 1)
+                        {
+                            this.PinList[i].ChangeColorMode(STATE_COLOR.ANOMALY);
+                            this.PinList[i].State_Active = false;
+                        }
+                        else
+                        {
+                            this.PinList[i].ChangeColorMode(STATE_COLOR.STANDBY);
+                        }
                         break;
                     }
                 }
@@ -499,15 +493,13 @@ namespace client_supervisor
         // 1-2-2 : 특정 요청일에 대하여 전체 기록 수신
         private void Recv_Req_Event_List(WorkItem item)
         {
-            //Console.WriteLine($"[{item.Protocol}] 특정 요청일({item.JsonData["DATE_REQ"].Value<DateTime>().ToString("d")})에 대한 로그 수신");
-
             // 서버에서 받을 데이터 목록 생성
             ObservableCollection<AnomalyLog> anomaly_logs = new ObservableCollection<AnomalyLog>();
 
             // 서버에서 수신받은 데이터를 목록에 넣기
             JArray? arr_data = item.JsonData["DATA"] as JArray;
 
-            if(arr_data.Count > 0)
+            if(arr_data != null && arr_data.Count > 0)
             {
                 foreach (JObject obj_ano in arr_data)
                 {
@@ -557,6 +549,10 @@ namespace client_supervisor
                 }
 
                 this.log_total.transit_log(anomaly_logs);
+            }
+            else
+            {
+                MessageBox.Show("해당 날짜에 대한 기록이 없습니다.", "정보", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
         // 1-3-0 : 지도 목록 수신

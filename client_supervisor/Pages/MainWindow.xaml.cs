@@ -407,18 +407,7 @@ namespace client_supervisor
         }
 
         // 세부사항 및 상황 처리사항 부분 활성화, 비활성화 메서드
-        public void activateDetailPanel(bool flag = true)
-        {
-            // 라디오버튼 활성화
-            foreach (RadioButton radioButton in wrap_kind_anomaly.Children)
-            {
-                radioButton.IsEnabled = flag;
-            }
 
-            // 텍스트 입력부분 비활성화
-            textbox_proc_manager.IsEnabled = flag;
-            textbox_proc_memo.IsEnabled = flag;
-        }
 
         // 라디오 버튼 동적 생성
         private void AddRadioButtonToPanel(WrapPanel parentPanel, string content, string groupName, bool isChecked = false)
@@ -433,7 +422,7 @@ namespace client_supervisor
             };
 
             // 이벤트 핸들러 추가
-            newRadioButton.Checked += RadioButton_Checked;
+            //newRadioButton.Checked += RadioButton_Checked;
             newRadioButton.IsEnabled = false;
             parentPanel.Children.Add(newRadioButton); // 패널에 라디오 버튼 추가
         }
@@ -446,14 +435,14 @@ namespace client_supervisor
             }
         }
         // 라디오 버튼 Checked 이벤트 핸들러
-        private void RadioButton_Checked(object sender, RoutedEventArgs e)
-        {
-            RadioButton? radioButton = sender as RadioButton;
-            if (radioButton != null)
-            {
-                //MessageBox.Show($"{radioButton.Content}이(가) 선택되었습니다.");
-            }
-        }
+        //private void RadioButton_Checked(object sender, RoutedEventArgs e)
+        //{
+        //    RadioButton? radioButton = sender as RadioButton;
+        //    if (radioButton != null)
+        //    {
+        //        //MessageBox.Show($"{radioButton.Content}이(가) 선택되었습니다.");
+        //    }
+        //}
         // 라디오 버튼 생성
         private void CreateRadioButtons_Click(Dictionary<int, string> dict_name)
         {
@@ -481,17 +470,17 @@ namespace client_supervisor
         // 어떤 라디오버튼이 클릭되었는지에 대한 값 반환
         private int RadioButtonChecked(WrapPanel wrapPanel)
         {
-            int cnt = 1;
-            foreach(UIElement child in wrapPanel.Children)
+            int cnt = 2;        // 1은 상황 발생이므로 제외
+            foreach (UIElement child in wrapPanel.Children)
             {
                 RadioButton? radioButton = child as RadioButton;
-                if (radioButton != null)
+                if (radioButton.IsChecked == true)
                 {
                     return cnt;
                 }
                 cnt++;
             }
-            return 0;
+            return 1;
         }
 
         public void ScrollViewer_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -766,7 +755,7 @@ namespace client_supervisor
                 {
                     if (child is ClientPin pin)
                     {
-                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Idx ? Visibility.Visible : Visibility.Collapsed;
+                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Num_Map ? Visibility.Visible : Visibility.Collapsed;
                     }
                 }
                 this.ResetDetailPanel(); // 세부사항 패널 초기화
@@ -789,7 +778,7 @@ namespace client_supervisor
                 {
                     if (child is ClientPin pin)
                     {
-                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Idx ? Visibility.Visible : Visibility.Collapsed;
+                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Num_Map ? Visibility.Visible : Visibility.Collapsed;
                     }
                 }
                 this.ResetDetailPanel(); // 세부사항 패널 초기화
@@ -827,10 +816,11 @@ namespace client_supervisor
                 // 해당 클라이언트가 접속하지 않았다면
                 if (!clickedPin.State_Connect)
                 {
+                    ResetDetailPanel(true); // 모든 패널 초기화
                     pb_state_active.Content = "";
                     pb_state_active.IsEnabled = false;
                     label_data_state.Content = "서버와 연결되지 않음";
-                    activateDetailPanel(false);
+                    
                 }
                 else
                 {
@@ -841,6 +831,8 @@ namespace client_supervisor
                     pb_proc_commit.IsEnabled = true;
                     pb_proc_init.IsEnabled = true;
 
+                    ResetDetailPanel(true); // 모든 패널 초기화
+
                     // 이상발생 목록 확인 후 가장 최신 핀 정보로 업데이트, 없으면 초기화
                     for (int i = 0; i < this.List_Daily_Anomaly.Count; i ++)
                     {
@@ -849,16 +841,25 @@ namespace client_supervisor
                             AnomalyLog log = this.List_Daily_Anomaly[i];
 
                             label_start_datetime.Content = log.Time_Start.ToString("F");
-                            label_proc_datetime.Content = log.Time_End.ToString("F");
+                            if(log.Time_End == DateTime.MinValue)
+                            {
+                                label_proc_datetime.Content = "";
+                            }
+                            else
+                            {
+                                label_proc_datetime.Content = log.Time_End.ToString("F");
+                            }
+                                
                             RadioGroupChangeState();
-                            textbox_proc_manager.Text = log.Worker;
-                            textbox_proc_memo.Text = log.Memo;
+                            RadioGroupChecked(i);
+                            
 
-                            label_proc_kind.Content = this.List_Kind_Anomaly[log.Code_Error].ToString();
+                            textbox_proc_memo.IsEnabled = true;
+                            textbox_proc_manager.IsEnabled = true;
+                            label_proc_kind.Content = this.List_Kind_Error[log.Code_Error].ToString();
 
                             // 현재 클릭된 상황을 저장
                             this.CurrentClickedAnomaly = log;
-
                             break;
                         }
                     }
@@ -873,32 +874,58 @@ namespace client_supervisor
                 }
                 this.LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[this.idx_map].Path));
                 //this.FitToViewer();
-                activateDetailPanel(true);
+            }
+        }
+        private void RadioGroupChecked(int idx)
+        {
+            // 처리 상황에 따른 라디오버튼 클릭 상태 전환
+            int targetIndex = List_Daily_Anomaly[idx].Code_Anomaly - 2; // 변수 값을 0부터 시작하는 인덱스로 변환
+            if (targetIndex >= 0 && targetIndex < wrap_kind_anomaly.Children.Count)
+            {
+                // 가져온 UIElement가 RadioButton인지 확인합니다.
+                if (wrap_kind_anomaly.Children[targetIndex] is RadioButton rbtn)
+                {
+                    rbtn.IsChecked = true; // 해당 라디오버튼을 선택 상태로 만듭니다.
+                }
             }
         }
         // 화면 전환 시 세부사항 패널 초기화
-        private void ResetDetailPanel()
+        private void ResetDetailPanel(bool flag_bottom = false)
         {
-            label_data_map.ClearValue(ContentProperty);
-            label_data_pin.ClearValue(ContentProperty);
-            label_data_name.ClearValue(ContentProperty);
-            label_data_loc.ClearValue(ContentProperty);
-            label_data_manager.ClearValue(ContentProperty);
-            label_data_state.ClearValue(ContentProperty);
+            // 모드로 초기화 정도 지정
+            // 0 : 모든 사항 초기화, 라디오 버튼 비활성화 false
+            // 1 : 하부 사항 초기화, 라디오 버튼 비활성화 true
 
+            this.CurrentClickedPin = null;
+
+            if (!flag_bottom)
+            {
+                // 상단
+                label_data_map.ClearValue(ContentProperty);
+                label_data_pin.ClearValue(ContentProperty);
+                label_data_name.ClearValue(ContentProperty);
+                label_data_loc.ClearValue(ContentProperty);
+                label_data_manager.ClearValue(ContentProperty);
+                label_data_state.ClearValue(ContentProperty);
+            }
+            
+            // 하단
             label_start_datetime.ClearValue(ContentProperty);
             label_proc_datetime.ClearValue(ContentProperty);
             label_proc_kind.ClearValue(ContentProperty);
-
-            activateDetailPanel(false);
-
+               
             pb_state_active.Content = "";
             pb_state_active.IsEnabled = false;
 
             pb_proc_commit.IsEnabled = false;
             pb_proc_init.IsEnabled = false;
 
-            this.CurrentClickedPin = null;
+            textbox_proc_manager.IsEnabled = false;
+            textbox_proc_manager.Clear();
+            textbox_proc_memo.IsEnabled = false;
+            textbox_proc_memo.Clear();
+
+            RadioGroupChangeState(false);
         }
         // 상황 패널 초기화
         private void DeactiveDetailPanel(WrapPanel parentPanel)
@@ -1056,7 +1083,7 @@ namespace client_supervisor
         {
             WorkItem item = new WorkItem();
             item.Protocol = "1-2-2";
-            item.JsonData["DATE_REQ"] = selected.ToString();
+            item.JsonData["DATE_REQ"] = selected.ToString().Substring(0, 10);    // 날짜 형식으로 변환
             DataReceivedEventArgs send_122 = await this.ExcuteCommand_SendAndWait(item, item.Protocol);
             this.Act_SendAndRecv(send_122);
         }
@@ -1080,7 +1107,7 @@ namespace client_supervisor
                     // 빈칸을 다 채웠을 경우, 데이터 송신
                     this.CurrentClickedAnomaly.Worker = textbox_proc_manager.Text;
                     this.CurrentClickedAnomaly.Memo = textbox_proc_memo.Text;
-                    this.CurrentClickedAnomaly.Code_Error = radio;
+                    this.CurrentClickedAnomaly.Code_Anomaly = radio;
 
                     // 초기화
                     DeactiveDetailPanel(wrap_kind_anomaly);
@@ -1139,7 +1166,6 @@ namespace client_supervisor
                     pb_state_active.Content = "";
                     pb_state_active.IsEnabled = false;
                     label_data_state.Content = "서버와 연결되지 않음";
-                    activateDetailPanel(false);
                 }
                 else
                 {
@@ -1156,6 +1182,7 @@ namespace client_supervisor
                 if (pb_proc_commit.IsEnabled == false) pb_proc_commit.IsEnabled = true; // 적용 버튼 활성화
 
                 this.RadioGroupChangeState(true); // 라디오 버튼 활성화
+                RadioGroupChecked(idx_selected);        // 처리사항에 따른 라디오버튼 클릭
 
                 int targetIndex = this.List_Daily_Anomaly[idx_selected].Code_Anomaly - 2;
                 if (targetIndex >= 0 && targetIndex < wrap_kind_anomaly.Children.Count)
