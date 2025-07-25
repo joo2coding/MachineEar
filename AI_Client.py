@@ -6,6 +6,9 @@ import torch
 import numpy as np
 from model import Wavegram_AttentionMap
 import time   # 시간 측정용
+import queue # FIFO
+
+audio_queue = queue.Queue() # 비어있는 큐 자료구조 --> 초기화
 
 # 모델 불러오기
 ckpt_path = 'MACHINE_EAR_MODEL.ckpt'
@@ -29,15 +32,17 @@ CLASS = ['fan', 'pump', 'slider', 'valve', 'gearbox', 'ToyConveyor']
 def send_data(sock, json_):  # 4바이트(전체크기) + 4바이트(json크기) + 실제 데이터(json)
     try:
         json_str = json.dumps(json_)
-        print(f'json_str : {json_str}')
+        # print(f'송신 : {json_str}')
         json_bytes = json_str.encode('utf-8')  # json의 바이트 배열
         total_bytes = len(json_bytes)          # 보낼 데이터의 총 크기 (json 만 보낼 경우)
-        print(f'total_bytes : {total_bytes}')
+        # print(f'송신 total_bytes : {total_bytes}')
+
         # 4바이트로 길이 인코딩 (네트워크 바이트 오더, big-endian)
         header_total = struct.pack('>I', total_bytes)
-        header_json = struct.pack('>I', len(json_bytes))   # ← 여기!
+        header_json = struct.pack('>I', total_bytes)   # ← 여기!
         sock.sendall(header_total + header_json + json_bytes)
-        print(header_total + header_json + json_bytes)
+        print(f'송신 : {header_total + header_json + json_bytes}')
+        print()
     except Exception as e:
         print('전송 중 에러:', e)
 
@@ -62,24 +67,22 @@ def receive_data(sock):
     try:
         # header 8바이트 수신하기
         header = chk_receive_data(sock, 8)  # 앞에서 8바이트 읽어서 저장 ---> header(4+4)
-        # print(f'header : {header}')
         total_len, json_len = struct.unpack('>II', header)  # 4바이트씩 뜯어서 ---> 전체 길이 / json 길이 저장
-        print(f'총 데이터 길이(total_len) : {total_len}')
-        print(f'json 길이(json_len)      : {json_len}')
+        # print(f'총 데이터 길이(total_len) : {total_len}')
+        # print(f'json 길이(json_len)      : {json_len}')
 
         # header 뒤 실제 데이터 수신하기
         body = chk_receive_data(sock, total_len)
-        # print(f'body : {body}')
         # json과 data 각각 저장하기
         json_ = body[:json_len].decode("utf-8")
         if total_len > json_len: # 데이터가 있는 경우
             data_ = body[json_len:total_len]
+            audio_queue.put(data_) # 수신 오디오 데이터 큐에 삽입
+            print(f'파일 넣은 오디오 큐 사이즈 : {audio_queue.qsize()}')
         else: # 데이터가 없는 경우
             data_ = None
 
-        print(f'json_data : {json_}')
-        # if data_ is not None:
-            # print(f'data : {data_}')
+        print(f'수신 : {json_}')
 
         return json_, data_
 
@@ -132,7 +135,7 @@ def proc_2_0_0(sock, conn_switch):
         send_data(sock, {'PROTOCOL': '2-0-0'})  # 접속 요청 데이터 보내기
         json_, data_ = receive_data(sock)
         json_obj = json.loads(json_)
-        print(f'json_ : {json_obj}')
+        # print(f'json_ : {json_obj}')
         if json_obj['PROTOCOL'] == '2-0-0':
             if json_obj['RESPONSE'] == 'NO':
                 print('서버한테 connect NO 받았어요')
@@ -144,7 +147,7 @@ def proc_2_0_0(sock, conn_switch):
 
 # 오디오 수신 함수
 def proc_2_1_0(sock, json_obj, data_):
-    print('오디오 수신해요')
+    # print('오디오 수신해요')
     fail_switch = 0
     if (not 'NUM_PIN' in json_obj) or (not '__META__' in json_obj):
         print('1')
@@ -160,8 +163,6 @@ def proc_2_1_0(sock, json_obj, data_):
         fail_switch = 1
 
     if fail_switch == 0:  # 데이터를 정상적으로 수신한 경우
-        res_json = {'RESPONSE': 'OK'}
-        send_data(sock, res_json)
         NUM_PIN = json_obj['NUM_PIN']
         SIZE = json_obj['__META__']['SIZE']
         SR = json_obj['__META__']['SAMPLING_RATE']
@@ -171,16 +172,17 @@ def proc_2_1_0(sock, json_obj, data_):
 
         # 서버에서 받은 data_: bytes (WAV 파일) ---> 저장해야함.
         filename = 'recv.' + SOURCE.lower()
-        print(f'filename : {filename}')
+        # print(f'filename : {filename}')
         with open(filename, "wb") as f:
-            f.write(data_)
+            # f.write(data_)
+            f.write(audio_queue.get()) # 오디오 큐에 들어있는 바이너리 데이터 중 가장 처음 데이터 삭제 후 반환
+            print(f'파일 뺀 오디오 큐 사이즈 : {audio_queue.qsize()}')
 
         # 오디오 데이터 예측해서 서버에게 예측 결과 송신
         pred_ = pred_audio(SR, TIME, model)
         class_, result_ = pred_.split()
 
-        result_json = {"PROTOCOL": "2-2-0", "NUM_PIN": NUM_PIN, "CLASS": CLASS.index(class_), "RESULT": result_.upper(), "FILE_PATH" : FILE_PATH}
-        # result_json = {"PROTOCOL": "2-2-0", "NUM_PIN": NUM_PIN, "CLASS": CLASS.index(class_), "RESULT": "NORMAL", "FILE_PATH" : FILE_PATH}
+        result_json = {"PROTOCOL": "2-2-0", "NUM_PIN": NUM_PIN, "CLASS": CLASS.index(class_)+1, "RESULT": result_.upper(), "FILE_PATH" : FILE_PATH}
         send_data(sock, result_json)  # 예측 결과 보내기
 
 # 서버가 예측 결과 받았는지 확인하는 함수
@@ -216,8 +218,14 @@ def main():
     except KeyboardInterrupt:
         print('\n사용자 중단')
     finally:
-        client_socket.close()
-        print('연결 종료')
-
+        try:
+            client_socket.shutdown(socket.SHUT_RDWR)  # 송/수신 모두 종료
+        except Exception as e:
+            print('소켓 shutdown 중 예외:', e)
+        try:
+            client_socket.close()  # 반드시 닫기
+        except Exception as e:
+            print('소켓 close 중 예외:', e)
+        print('클라이언트 종료, 소켓 정상 정리 완료')
 if __name__ == "__main__":
     main()
