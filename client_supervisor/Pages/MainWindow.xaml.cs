@@ -86,7 +86,7 @@ namespace client_supervisor
             this.DataContext = this;
 
             // PinList에 대한 이벤트 핸들러 등록
-            this.PinList.CollectionChanged += this.PinList_Changed;
+            //this.PinList.CollectionChanged += this.PinList_Changed;
 
             //Header_Manage_Map.IsEnabled = true;
             //this.MapSectors = this.load_maplist(true);      // 지도 목록 불러오기
@@ -791,7 +791,7 @@ namespace client_supervisor
 
                 foreach (MapSector map in this.MapSectors)
                 {
-                    if (map.Idx == this.idx_map)
+                    if (map.Num_Map == this.idx_map)
                     {
                         idx_sorted = map.Idx - 1;
                     }
@@ -823,7 +823,7 @@ namespace client_supervisor
 
                 foreach (MapSector map in this.MapSectors)
                 {
-                    if (map.Idx == this.idx_map)
+                    if (map.Num_Map == this.idx_map)
                     {
                         idx_sorted = map.Idx - 1;
                     }

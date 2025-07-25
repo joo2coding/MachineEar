@@ -207,13 +207,22 @@ namespace client_supervisor
 
             List<object> list_arr = new List<object>();
 
+            int idx_sorted = 0;
+            foreach (MapSector map in this.MapSectors)
+            {
+                if (map.Num_Map == this.idx_map)
+                {
+                    idx_sorted = map.Idx - 1;
+                }
+            }
+
             // 추가 부분 생성
-            foreach( ClientPin pin in this.PinList_Add)
+            foreach ( ClientPin pin in this.PinList_Add)
             {
                 Dictionary<string, object> dict_arr = new Dictionary<string, object>();
       
                 dict_arr.Add("NUM_PIN", pin.Idx);
-                dict_arr.Add("NUM_MAP", this.MapSectors[this.idx_map].Num_Map);
+                dict_arr.Add("NUM_MAP", this.MapSectors[idx_sorted].Num_Map);
                 dict_arr.Add("NAME_PIN", pin.Name_Pin);
                 dict_arr.Add("NAME_LOC", pin.Name_Location);
                 dict_arr.Add("NAME_MANAGER", pin.Name_Manager);
