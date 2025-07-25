@@ -209,6 +209,21 @@ void client_thread(SOCKET clientSock)
     cout << endl;
     for (int i = 0; i < list_conninfo.size(); i++) {
         if (list_conninfo[i].socket == clientSock) {
+                        // DB 연결
+            MYSQL* conn = connect_db();
+            if (!conn)
+            {
+                cout << "DB 연결 실패" << endl;
+            }
+            string query = "UPDATE LIST_PIN SET STATE_CONNECT = FALSE WHERE MAC = '" + list_conninfo[i].mac + "'";
+            // 쿼리문 실행하기
+            if (mysql_query(conn, query.c_str()))
+            {
+                cout << "쿼리 실패" << endl;
+            }
+            mysql_close(conn);
+
+            // 연결 목록에서 삭제
             list_conninfo.erase(list_conninfo.begin() + i);
             break;
         }

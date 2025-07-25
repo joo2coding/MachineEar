@@ -6,44 +6,9 @@
 WorkItem proc_1_1_0(WorkItem& item);
 WorkItem proc_2_1_0(WorkItem& item);
 
-//// [프로토콜: 마이크] 0-0-0 클라가 NUM_PIN을 설정했을 때, 해당 핀의 활성 상태를 설정하는 함수1
-//WorkItem proc_0_0_0(WorkItem& item) 
-//{
-//    WorkItem send_item = item;                // 응답용 WorkItem 객체 생성
-//
-//    if (!item.json_conv.contains("MAC"))
-//    {
-//        send_item.json_conv["RESPONSE"] = "NO";
-//    }
-//    else 
-//    {
-//        int num_pin = -1;
-//        if (item.json_conv["MAC"].is_number_integer()) 
-//        {
-//            mac = item.json_conv["MAC"].get<int>();
-//        }
-//        else if (item.json_conv["MAC"].is_string()) 
-//        {
-//          mac = stoi(item.json_conv["MAC"].get<string>());
-//        }
-//
-//        for (int i = 0; i < list_conninfo.size(); i++) 
-//        {
-//            if (list_conninfo[i].socket == item.socket) 
-//            {
-//                list_conninfo[i].client_id = 0;
-//                list_conninfo[i].num_pin = mac;
-//                break;
-//            }
-//        }
-//        refresh_conninfo();
-//
-//        send_item.json_conv["RESPONSE"] = "OK"; // 응답 JSON에 "OK" 메시지
-//    }
-//   
-//    return send_item;                  // 응답 반환
-//}
 
+
+// DB 연결 함수
 void Log_connect(int num_pin, bool state_connect)
 {
    auto t = time(NULL); // 현재 시간 가져오기
@@ -220,7 +185,7 @@ WorkItem proc_0_0_1(WorkItem& item)
     {
         string query = "SELECT NUM_PIN, MAC FROM LIST_PIN WHERE STATE_CONNECT = true";
 
-        cout << "[ " << item.protocol << " ]쿼리:" << query << endl;
+        //cout << "[ " << item.protocol << " ]쿼리:" << query << endl;
 
         // 쿼리문 실행하기
         if (mysql_query(conn, query.c_str()))
@@ -273,7 +238,7 @@ WorkItem proc_0_0_1(WorkItem& item)
         // STATE_ACTIVE 상태 조회 및 송신
         string query = "SELECT STATE_ACTIVE FROM LIST_PIN WHERE NUM_PIN = " + to_string(num_pin);
 
-        cout << "[ " << item.protocol << " ]쿼리:" << query << endl;
+        //cout << "[ " << item.protocol << " ]쿼리:" << query << endl;
 
         // 쿼리문 실행하기
         if (mysql_query(conn, query.c_str()))
@@ -313,11 +278,13 @@ WorkItem proc_0_0_1(WorkItem& item)
 
     mysql_close(conn);
 
-    // 클라이언트(마이크)에게 상태 송신
     for (int i = 0; i < list_reg.size(); i++)
     {
-        send_item.socket = list_reg[i].socket; // 해당 마이크 소켓으로 설정
-        send_workitem(send_item); // 응답 전송
+        if (send_item.protocol == "1-1-0") {        // 직접 
+            send_item.socket = list_reg[i].socket; // 해당 마이크 소켓으로 설정
+            send_workitem(send_item); // 응답 전송
+            break;
+        }
     }
 
     // 클라이언트(관리자)에게 상태 송신
@@ -361,9 +328,7 @@ WorkItem proc_0_1_0(WorkItem& item)
     
     string filename = ".\\recv_wav\\" + "recv_"s + time_str + "_" + to_string(num_pin) + "." + ext;
 
-
     //cout << "파일 저장 시도: " << filename << ", payload 크기: " << item.payload.size() << endl;
-
 
     ofstream out(filename, ios::binary);
     if (out.is_open() && !item.payload.empty())
@@ -396,9 +361,6 @@ WorkItem proc_0_1_0(WorkItem& item)
 
     return send_item_ai;                  // 응답 반환
 }
-
-
-
 
 // [프로토콜: 관리자] 1-0-0 처리 함수 
 WorkItem proc_1_0_0(WorkItem& item) // 관리자가 접속했을 때, 다른 관리자가 있는지 확인하고 응답   
@@ -621,19 +583,7 @@ WorkItem proc_1_1_0(WorkItem& item)
         pin_info["MAC"] = row[5] ? row[5] : "";
         pin_info["DATE_REG"] = row[6] ? row[6] : "";
 
-        //cout << cnt++ << ". Query | NUM_PIN : " << pin_info["NUM_PIN"] << " - MAC : " << pin_info["MAC"] << endl;
-
-        //bool state_active = false;
-        //if (row && row[7]) {
-        //    int state = atoi(row[7]);      // row[0]이 "0" 또는 "1" 형태의 문자열임
-        //    state_active = (state != 0);   // 0이면 false, 1이면 true
-        //}
-        //send_item.json_conv["STATE_ACTIVE"] = state_active;
-
         pin_info["STATE_ACTIVE"] = row[7] ? (strcmp(row[7], "1") == 0) : false;
-
-
-        //pin_info["STATE_ACTIVE"] = row[7] ? (strcmp(row[7], "1") == 0 ? true : false) : false;
      
         pin_info["POS_X"] = row[8] ? atof(row[8]) : 0.0;
         pin_info["POS_Y"] = row[9] ? atof(row[9]) : 0.0;
@@ -720,13 +670,51 @@ WorkItem proc_1_1_2(WorkItem& item)
         cout << "DB 연결 실패" << endl;
     }
 
+    // 일일 이상상황에서 이상상황이 발생한 경우(code_anomaly가 1인 경우)는 송신하지 않게 목록화
+    string query = "SELECT NUM_PIN FROM LIST_EVENT_DAILY WHERE CODE_ANOMALY != 1";
+    // 쿼리문 실행하기
+    if (mysql_query(conn, query.c_str()))
+    {
+        mysql_close(conn);
+        cout << "쿼리 실패" << endl;
+        return send_item; // 빈 응답 반환
+    }
+
+    MYSQL_RES* res = mysql_store_result(conn);
+    if (!res)
+    {
+        mysql_close(conn);
+        cout << "1-1-2 쿼리 결과 없음" << endl;
+        return send_item; // 빈 응답 반환
+    }
+
+    MYSQL_ROW row;
+    vector<int> pin_list;       // code_anomaly != 1 에 대한 핀 번호만 넣기, 아래에서 현재 이상상황인 핀에 대한 차집합용
+
+    while ((row = mysql_fetch_row(res)))
+    {
+        int pin_num = row[0] ? atoi(row[0]) : 0;      // INT
+ 
+        pin_list.push_back(pin_num);
+    }
+
+    mysql_free_result(res);  // 쿼리 결과 메모리 해제
+
+    /////////////////////////////////////////////////
     string in_list;
     for (int i = 0; i < list_conninfo.size(); i++) 
     {
+        // 마이크이면서, list_pin에 존재하는 핀만 실행
         if (list_conninfo[i].client_id == 0 && list_conninfo[i].num_pin > 0)
         {
-            if (!in_list.empty()) in_list += ",";
-            in_list += to_string(list_conninfo[i].num_pin);
+            for (int j = 0; j < pin_list.size(); j++) {
+                // 위에서 현재 이상상황이 발생한 목록과 현재 접속된 목록을 대조하여 이상상황이 아닌 경우만 업데이트 목록에 추가
+                if (pin_list[j] == list_conninfo[i].num_pin) {
+                    if (!in_list.empty()) in_list += ",";
+                    in_list += to_string(list_conninfo[i].num_pin);
+                    break;
+                }
+            }            
         }
     }
     if (!in_list.empty())
@@ -742,8 +730,6 @@ WorkItem proc_1_1_2(WorkItem& item)
             return send_item; // 빈 응답 반환
         }
 
-        //MYSQL_RES* res = mysql_store_result(conn);
-        //mysql_free_result(res);  // 쿼리 결과 메모리 해제
         mysql_close(conn);       // DB 연결 종료
     }
 
@@ -757,10 +743,12 @@ WorkItem proc_1_1_2(WorkItem& item)
 
     for(int i = 0; i < list_conninfo.size(); i++) 
     {
-        if (list_conninfo[i].client_id == 0 && list_conninfo[i].num_pin > 0)
-        {
-            send_item.socket = list_conninfo[i].socket; // 해당 마이크 소켓으로 설정
-			send_workitem(send_item); // 응답 전송
+        for (int j = 0; j < pin_list.size(); j++) {
+            if (pin_list[j] == list_conninfo[i].num_pin && list_conninfo[i].num_pin > 0) {
+                send_item.socket = list_conninfo[i].socket; // 해당 마이크 소켓으로 설정
+                send_workitem(send_item); // 응답 전송
+                break;
+            }
         }
 	}
 
@@ -777,7 +765,6 @@ WorkItem proc_1_2_0(WorkItem& item)
 
     bool flag_arr = false;
     if (!item.protocol.empty()) flag_arr = true;
-
 
     send_item.json_conv.clear(); // JSON 초기화
 
@@ -853,7 +840,6 @@ WorkItem proc_1_2_0(WorkItem& item)
 WorkItem proc_1_2_1(WorkItem& item)
 {
     WorkItem send_item = item;
-    
 	send_item.json_conv.clear(); // JSON 초기화
 
     int num_event = item.json_conv.value("NUM_EVENT", -1);
@@ -876,7 +862,7 @@ WorkItem proc_1_2_1(WorkItem& item)
         " WHERE NUM_EVENT = " + to_string(num_event);
 
 
-    cout << "쿼리: " << query << endl;
+    //cout << "쿼리: " << query << endl;M
     // 쿼리문 실행하기
     if (mysql_query(conn, query.c_str()))
     {
@@ -911,6 +897,7 @@ WorkItem proc_1_2_2(WorkItem& item)
         cout << "DB 연결 실패" << endl;
     }
 
+
     string query =
         "SELECT "
         "PIN.NUM_PIN, "            // 0: 핀 번호
@@ -919,7 +906,7 @@ WorkItem proc_1_2_2(WorkItem& item)
         "PIN.NAME_LOC, "           // 3: 위치 이름
         "PIN.NAME_MANAGER, "       // 4: 담당자 이름
 
-        "EVT.NUM_EVENT, "   // 5: 이벤트 번호(일련번호)
+        "EVT.NUM_DAILY, "   // 5: 이벤트 번호(일련번호)
         "EVT.CODE_ERROR, "         // 6: 원인 코드
         "EVT.CODE_ANOMALY, "       // 7: 상태 코드
         "EVT.MANAGER_PROC, "       // 8: 처리자 이름
@@ -930,7 +917,7 @@ WorkItem proc_1_2_2(WorkItem& item)
         "INNER JOIN LIST_PIN PIN ON EVT.NUM_PIN = PIN.NUM_PIN "
         "INNER JOIN LIST_MAP MAP ON PIN.NUM_MAP = MAP.NUM_MAP "
         "WHERE DATE(EVT.DATE_START) = '" + date_req + "'"
-        "ORDER BY NUM_EVENT DESC";
+        "ORDER BY NUM_DAILY DESC";
 
     // 쿼리문 실행하기
     if (mysql_query(conn, query.c_str()))
@@ -1008,11 +995,11 @@ WorkItem proc_1_2_3(WorkItem& item)
     
     if (item.json_conv.contains("MODIFIED") && item.json_conv["MODIFIED"].is_array())
     {
-		cout << "MODIFIED 배열 크기: " << modified_list.size() << endl;
+		//cout << "MODIFIED 배열 크기: " << modified_list.size() << endl;
 
         for (auto& date : modified_list)
         {
-            cout << "모디팔이: " << modified_list.size() << endl;
+            //cout << "모디팔이: " << modified_list.size() << endl;
 
             int num_event = date.value("NUM_EVENT", 0);
             int code_anomaly = date.value("CODE_ANOMALY", 0);
@@ -1045,7 +1032,7 @@ WorkItem proc_1_2_3(WorkItem& item)
 
     if (item.json_conv.contains("REMOVED") && item.json_conv["REMOVED"].is_array())
     {
-		cout << "REMOVED 배열 크기: " << removed_list.size() << endl;
+		//cout << "REMOVED 배열 크기: " << removed_list.size() << endl;
 
         for (int i = 0 ; i < removed_list.size(); i++)
         {
@@ -1082,7 +1069,7 @@ WorkItem proc_1_2_3(WorkItem& item)
 // [프로토콜: 관리자] 1-3-0  지도 목록 및 정보 요청
 WorkItem proc_1_3_0(WorkItem& item)
 {
-    cout << "1-3-0 들옴" << endl;
+    //cout << "1-3-0 들옴" << endl;
     WorkItem send_item = item;
 
     MYSQL* conn = connect_db();
@@ -1122,29 +1109,6 @@ WorkItem proc_1_3_0(WorkItem& item)
         map_info["NAME_MAP"] = row[1] ? row[1] : "";
         map_info["INDEX_MAP"] = row[2] ? atoi(row[2]) : 0;
         string path_map = row[3] ? row[3] : "";
-        
-        // 파일을 이진 모드로 오픈
-        //ifstream file(path_map, ios::binary);
-
-        // 파일 크기 구하기
-        //uint32_t file_size_uint32;                 // 파일 크기 저장용 변수
-        //if (file.is_open())
-        //{
-        //    // 파일을 처음부터 끝까지 읽어서 벡터에 저장
-        //    send_item.payload = vector<unsigned char>
-        //        (
-        //            istreambuf_iterator<char>(file),   // 파일 처음부터
-        //            istreambuf_iterator<char>()        // 파일 끝까지
-        //        );
-        //    streamsize file_size = file.tellg(); // 현재 위치(=파일 크기) 얻기
-        //    file.seekg(0, ios::end);                  // 파일 포인터를 처음으로 이동
-
-        //    // 파일 크기를 uint32_t로 변환해서 저장
-        //    file_size_uint32 = static_cast<uint32_t>(file_size);
-
-        //    file.close();                         // 파일 닫기
-        //}
-        //else { cout << "1-3-0 파일 열기 실패!" << endl; }    // 파일 열기 실패 시 메시지 출력 
         
         map_info["PATH_LOCAL"] = row[4] ? row[4] : "";
         map_info["SIZE_MAP"] = row[5] ? atoi(row[5]) : 0;
@@ -1191,11 +1155,6 @@ WorkItem proc_1_3_1(WorkItem& item)
             string path_local = date.value("PATH_LOCAL", "");
             int size_map = date.value("SIZE_MAP", 0);
             
-            /*string query = "UPDATE LIST_MAP SET NAME_MAP = '" + name_map +
-                "', INDEX_MAP = " + to_string(index_map) +
-                "', PATH_LOCAL = " + path_local + 
-                "', SIZE_MAP = " + to_string(size_map) +
-                " WHERE NUM_MAP = " + to_string(num_map);*/
             string safe_path_local = path_local;
             size_t pos2 = 0;
             while ((pos2 = safe_path_local.find("\\", pos2)) != string::npos)
@@ -1246,20 +1205,20 @@ WorkItem proc_1_3_2(WorkItem& item)
 	cout << "1-3-2 지도 파일 수신" << endl;   
     WorkItem send_item = item;
 
-	cout << "파일이름: " << item.json_conv["__META__"]["NAME"] << endl;
+	//cout << "파일이름: " << item.json_conv["__META__"]["NAME"] << endl;
 
 	string name = item.json_conv["__META__"]["NAME"];
 
     string filename = "C:\\Users\\mjy\\source\\repos\\ConsoleApplication1\\maps\\" + name;
 
-	cout << "지도 파일 이름: " << filename << endl;
+	//cout << "지도 파일 이름: " << filename << endl;
 
     MYSQL* conn = connect_db();
     if (!conn)
     {
         cout << "1-3-2 DB 연결 실패" << endl;
     }
-	cout << "지도 파일 저장 시도: " << filename << ", payload 크기: " << item.payload.size() << endl;
+	//cout << "지도 파일 저장 시도: " << filename << ", payload 크기: " << item.payload.size() << endl;
     
     ofstream out(filename, ios::binary);
     if (out.is_open() && !item.payload.empty())
@@ -1277,7 +1236,6 @@ WorkItem proc_1_3_2(WorkItem& item)
     string path_local = send_item.json_conv["__META__"]["PATH"];
     int size_map = send_item.json_conv["__META__"]["SIZE"];
     
-
     // 1. filename의 '\'를 '\\'로 변환
     string safe_filename = filename;
     size_t pos = 0;
@@ -1411,7 +1369,7 @@ WorkItem proc_1_3_3(WorkItem& item)
 // [프로토콜: 관리자] 1-3-4 핀 목록 수정 및 추가
 WorkItem proc_1_3_4(WorkItem& item)
 {
-	cout << "1-3-4 핀 목록 수정 및 추가" << endl;
+	//cout << "1-3-4 핀 목록 수정 및 추가" << endl;
     WorkItem send_item = item;
 
     json add_list = json::array(); // 핀 추가 배열 생성
@@ -1459,7 +1417,7 @@ WorkItem proc_1_3_4(WorkItem& item)
 
 
 
-        cout << "쿼리: " << query << endl;
+        //cout << "쿼리: " << query << endl;
 		// 쿼리문 실행하기
         if (mysql_query(conn, query.c_str()))
         {
@@ -1467,6 +1425,11 @@ WorkItem proc_1_3_4(WorkItem& item)
             cout << "1-3-4 쿼리 실패" << endl;
             return send_item; 
 		}
+
+        // 접속목록 업데이트 
+        for (int i = 0; i < list_conninfo.size(); i++) {
+            if (list_conninfo[i].mac == mac) list_conninfo[i].num_pin = num_pin;
+        }
     }
 
     for (int i =0; i < modified_list.size(); i++)
@@ -1499,7 +1462,17 @@ WorkItem proc_1_3_4(WorkItem& item)
             mysql_close(conn);
             cout << "1-3-4 쿼리 실패" << endl;
         }
+
+        // 접속 목록 업데이트
+        for (int i = 0; i < list_conninfo.size(); i++) {
+            if (list_conninfo[i].num_pin == num_pin) {
+                list_conninfo[i].num_pin = 0;
+                break;
+            }
+        }
 	}
+
+
 
     WorkItem null_item;
     return null_item;
@@ -1609,7 +1582,7 @@ WorkItem proc_2_2_0(WorkItem& item)
     
         // 일일 기록 추가
         string query = "INSERT INTO LIST_EVENT_DAILY (NUM_PIN, CODE_ERROR, CODE_ANOMALY, FILE_PATH) VALUES (" + to_string(num_pin) + ", " + to_string(cls) + ", " + to_string(1) + ", '" + filename + "')";
-        cout << "2-2-0  insert Query : " << query << endl;
+        //cout << "2-2-0  insert Query : " << query << endl;
 
         // 쿼리문 실행하기
         if (mysql_query(conn, query.c_str()))
@@ -1618,7 +1591,7 @@ WorkItem proc_2_2_0(WorkItem& item)
         }
 		// 해당 핀 번호에 대하여 STATE_ACTIVE를 FALSE로 변경
         query = "UPDATE LIST_PIN SET STATE_ACTIVE = 0 WHERE NUM_PIN = " + to_string(num_pin);
-        cout << "2-2-0 update Query : " << query << endl;
+        //cout << "2-2-0 update Query : " << query << endl;
 
         // 쿼리문 실행하기
         if (mysql_query(conn, query.c_str()))
@@ -1641,7 +1614,6 @@ WorkItem proc_2_2_0(WorkItem& item)
                 break;
             }
         }
-        cout << "관리자 송신" << endl;
         // 관리자에게도 송신
         for (int i = 0; i < list_conninfo.size(); i++)
         {
@@ -1650,9 +1622,9 @@ WorkItem proc_2_2_0(WorkItem& item)
                 WorkItem send_item_visor; // 응답용 WorkItem 생성
                 send_item = proc_1_2_0(send_item_visor);
                 send_item.socket = list_conninfo[i].socket;
-                cout << "가공완료 : " << send_item.json_conv << endl;
-                cout << "송장 : " << send_item.socket << endl;
-                cout << "protocol : " << send_item.protocol << endl;
+                //cout << "가공완료 : " << send_item.json_conv << endl;
+                //cout << "송장 : " << send_item.socket << endl;
+                //cout << "protocol : " << send_item.protocol << endl;
                 
                 send_workitem(send_item); // 관리자에게 송신
                 break;
