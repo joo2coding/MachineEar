@@ -1,0 +1,90 @@
+﻿<Window x:Class="MachineEar_MIC.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MachineEar_MIC" Height="503" Width="400">
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- Network 설정 -->
+            <RowDefinition Height="Auto"/>
+            <!-- Input 방식 -->
+            <RowDefinition Height="Auto"/>
+            <!-- Mic ID or 파일 선택 -->
+            <RowDefinition Height="Auto"/>
+            <!-- 파일명 출력 -->
+            <RowDefinition Height="Auto"/>
+            <!-- mic 레벨바 -->
+            <RowDefinition Height="Auto"/>
+            <!-- waveform -->
+            <RowDefinition Height="Auto"/>
+            <!-- 서버 상태 -->
+        </Grid.RowDefinitions>
+
+        <!-- 🔌 네트워크 설정 -->
+        <GroupBox Header="Network Connection" Grid.Row="0" Margin="0,0,0,10">
+            <Grid Margin="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="50"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="70"/>
+                    <ColumnDefinition Width="70"/>
+                </Grid.ColumnDefinitions>
+
+                <Label Content="IP" Grid.Row="0" Grid.Column="0"/>
+                <TextBox x:Name="textbox_ip" Grid.Row="0" Grid.Column="1" Height="25"/>
+
+                <Label Content="PORT" Grid.Row="1" Grid.Column="0"/>
+                <TextBox x:Name="textbox_port" Grid.Row="1" Grid.Column="1" Height="25"/>
+
+                <Label Content="MAC" Grid.Row="2" Grid.Column="0"/>
+                <TextBox x:Name="textbox_mac" Grid.Row="2" Grid.Column="1" IsReadOnly="True" Height="25"/>
+
+                <Button x:Name="btn_connect" Grid.Column="3" Grid.RowSpan="2" Content="연결" Margin="5,0,5,16" Click="connect_btn_click"/>
+                <Button x:Name="btn_disconnect" Grid.Row="2" Grid.Column="3" Content="해제" Margin="5,0,5,0" Click="btn_disconnec_Click"/>
+            </Grid>
+        </GroupBox>
+
+        <!-- 🎙️ 입력 방식 -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10" HorizontalAlignment="Center">
+            <Label Content="Input: " VerticalAlignment="Center"/>
+            <RadioButton x:Name="radio_mic" Content="Mic" Checked="radio_mic_Checked" Margin="10,5,10,0" Height="20"/>
+            <RadioButton x:Name="radio_csv" Content="Wav" Checked="radio_csv_Checked" Height="20" Margin="0,3,0,0"/>
+        </StackPanel>
+
+        <!-- 🎛️ Mic Combo or 파일 선택 -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
+            <Label Content="MIC ID" VerticalAlignment="Center" Margin="0,0,5,0"/>
+            <ComboBox x:Name="ComboBox_mic" Width="120" DropDownClosed="ComboBox_mic_DropDownClosed"/>
+            <Button x:Name="btn_browse" Content="불러오기" Width="75" Margin="10,0" Click="btn_mac_connect_Click" Height="32"/>
+        </StackPanel>
+
+        <!-- 📁 선택한 파일명 -->
+        <Border Grid.Row="3" BorderBrush="Black" BorderThickness="1" Padding="5" Margin="0,0,0,10">
+            <TextBlock x:Name="label_FileName" Text="파일명 없음" TextWrapping="Wrap" />
+        </Border>
+
+        <!-- 📶 mic 레벨바 -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
+            <TextBlock Text="🎤" FontSize="20" Margin="0,0,10,0" VerticalAlignment="Center"/>
+            <ProgressBar x:Name="micLevelBar" Width="220" Height="20" Minimum="0" Maximum="100" VerticalAlignment="Center"/>
+            <TextBlock x:Name="decibelText" Text="0 dB" Margin="10,0" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- 📈 파형 표시 -->
+        <Border Grid.Row="5" BorderBrush="Black" BorderThickness="1" Height="100" Margin="0,0,0,10">
+            <Canvas x:Name="canvas_waveform" Background="White"/>
+        </Border>
+
+        <!-- 🌐 서버 접속 상태임 -->
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Label Content="서버 상태:" VerticalAlignment="Center"/>
+            <Ellipse x:Name="ellipse_status" Width="15" Height="15" Fill="Gray" Stroke="Black" Margin="5,0"/>
+        </StackPanel>
+
+    </Grid>
+</Window>
