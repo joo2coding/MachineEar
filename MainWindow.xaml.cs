@@ -2,7 +2,9 @@ using Microsoft.VisualBasic;
 using Microsoft.Win32;
 using NAudio.Wave;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using ScottPlot;
+using ScottPlot.Finance;
 using SkiaSharp;
 using SkiaSharp.Views.WPF;
 using System.Collections.Generic;
@@ -113,11 +115,14 @@ namespace MachineEar_MIC
 
         public class TcpClientService : IDisposable
         {
+            // 🔹 STATE=0 수신 시 실행할 콜백 등록
+            public Action OnForceStopRequested;
+            public Action OnForceStartRequested; // 오디오 전송 요청 콜백
+
             // 서버에서 수신한 NUM_PIN 저장용
             private string _numPin;
             public string NumPin => _numPin;
             public Action<string> OnNumPinReceived; // NUM_PIN이 저장된 후 자동 실행될 콜백
-
 
             // 프로토콜 타입에 따라 문자열 반환
             private string GetProtocolCode(ProtocolName type)
@@ -233,13 +238,19 @@ namespace MachineEar_MIC
             private ReceiveState _currentState = ReceiveState.WaitingForHeader; // 현재 수신 상태
             private int _totalMessageSize = 0; // 헤더에서 읽은 전체 메시지 크기
             private int _jsonSize = 0;       // 헤더에서 읽은 JSON 데이터 크기
+            private object text_connectStatus;
 
             public TcpClientService()
             {
                 // 생성자에서는 특별한 초기화 없이 이벤트만 정의
             }
 
-            public async Task<bool> ConnectAsync(string ipAddress, int port, string macAddress)
+            public object GetText_connectStatus()
+            {
+                return text_connectStatus;
+            }
+
+            public async Task<bool> ConnectAsync(string ipAddress, int port, string macAddress, object text_connectStatus)
             {
                 if (IsConnected)
                 {
@@ -251,7 +262,7 @@ namespace MachineEar_MIC
                 {
                     Debug.WriteLine("[ConnectAsync] 시작");
 
-                    _clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    this._clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
                     IPEndPoint serverEndPoint = new IPEndPoint(IPAddress.Parse(ipAddress), port);
 
                     Debug.WriteLine($"서버에 연결 중... ({ipAddress}:{port})");
@@ -259,6 +270,11 @@ namespace MachineEar_MIC
 
                     Debug.WriteLine("서버에 성공적으로 연결되었습니다!");
                     OnConnectionStatusChanged(true);
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        //text_connectStatus.Text = "Connected";
+                    });
+
 
                     // ✅ 리팩토링된 전송 방식
                     await SendProtocolAsync(ProtocolName.Connect, mac: macAddress);
@@ -346,8 +362,6 @@ namespace MachineEar_MIC
             //////////////////수신부//////////////////
             private void ProcessReceivedData()
             {
-                //Debug.WriteLine("📩 [ProcessReceivedData 진입]");
-
                 // _currentMessageBuffer의 현재 위치를 처음으로 설정하여 읽을 수 있도록 함
                 _currentMessageBuffer.Position = 0;
 
@@ -414,9 +428,21 @@ namespace MachineEar_MIC
                                                 Debug.WriteLine($"[NUM_PIN 저장됨] {_numPin}");
                                             }
                                         }
+                                        else if (parsed.ContainsKey("RESPONSE") && parsed["RESPONSE"].ToString() == "NO")
+                                        {
+                                            Debug.WriteLine("서버 연결 응답이 ERROR입니다.");
+                                            OnErrorOccurred("서버 연결 응답이 ERROR입니다.");
+                                            // 아무것도 못하고 STATE_ACTIVE=True 올때까지 기다려야됨
+                                        }
+
+                                        else
+                                        {
+                                            Debug.WriteLine("서버 연결 응답이 OK가 아닙니다.");
+                                            OnErrorOccurred("서버 연결 응답이 OK가 아닙니다.");
+                                        }
                                     }
 
-                                    if (parsed.ContainsKey("NUM_PIN"))
+                                    if (parsed.ContainsKey("NUM_PIN")) // 수정
                                     {
                                         _numPin = parsed["NUM_PIN"].ToString();
                                         //Debug.WriteLine($"[NUM_PIN 저장됨] {_numPin}");
@@ -425,9 +451,26 @@ namespace MachineEar_MIC
                                         OnNumPinReceived?.Invoke(_numPin);
                                     }
 
+                                    if (parsed.ContainsKey("STATE_ACTIVE"))
+                                    {
+                                        if((bool)parsed["STATE_ACTIVE"] == false)
+                                        {
+                                            Debug.WriteLine("서버로부터 STATE=0 신호 수신. 전송 중단 요청 콜백 실행");
+                                            // 🔸 MainWindow에서 등록한 콜백 실행
+                                            OnForceStopRequested?.Invoke();
+                                        }
+                                        else
+                                        {
+                                            Debug.WriteLine("서버로부터 STATE=1 신호 수신. 전송 시작 요청 콜백 실행");
+                                            // 🔸 MainWindow에서 등록한 콜백 실행
+                                            OnForceStartRequested?.Invoke();
+                                        }
+                                    }
 
                                     // 이후 다른 응답 처리도 필요 시 여기에 확장
+
                                 }
+
                                 catch (Exception ex)
                                 {
                                     Debug.WriteLine($"❌ JSON 파싱 오류: {ex.Message}");
@@ -602,6 +645,7 @@ namespace MachineEar_MIC
                         _clientSocket = null;
                         Debug.WriteLine("서버와의 연결이 끊어졌습니다.");
                         OnConnectionStatusChanged(false);
+                        text_connectStatus = "Disconnected"; // 연결 상태 업데이트
                     }
                     catch (SocketException ex)
                     {
@@ -727,8 +771,36 @@ namespace MachineEar_MIC
                 await tcpService.SendProtocolAsync(ProtocolName.StatusCheck, pin: pin);
             };
 
+            // ✅ STATE_ACTIVE=0 수신 시, 타이머 중단 및 UI 갱신
+            tcpService.OnForceStopRequested = () =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    wavTimer?.Stop();
+                    micTimer?.Stop();
+                    Debug.WriteLine("💡 STATE=false 수신 → 타이머 중단");
+
+                    ellipse_status.Fill = Brushes.Gray;
+                    MessageBox.Show("서버로부터 전송 중단 신호를 받았습니다.", "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+                });
+            };
+
+            // ✅ STATE_ACTIVE=1 수신 시, 타이머 중단 및 UI 갱신
+            tcpService.OnForceStartRequested = () =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    wavTimer?.Start();
+                    micTimer?.Start();
+                    Debug.WriteLine("💡 STATE=true 수신 → 타이머 시작");
+
+                    ellipse_status.Fill = Brushes.LimeGreen;
+                    MessageBox.Show("서버로부터 전송 시작 신호를 받았습니다.", "알림", MessageBoxButton.OK, MessageBoxImage.Information);
+                });
+            };
+
             // 서버 연결 시도
-            bool success = await tcpService.ConnectAsync(ip, port, iPAddress.MAC);
+            bool success = await tcpService.ConnectAsync(ip, port, iPAddress.MAC, tcpService.GetText_connectStatus());
 
             if (success)
             {
@@ -736,9 +808,6 @@ namespace MachineEar_MIC
                 iPAddress.IP = ip;
                 iPAddress.PORT = port;
                 save_serveraddr(path_server, ip, port);
-                //Debug.WriteLine("Config 저장됨: " + JsonConvert.SerializeObject(iPAddress));
-
-                //MessageBox.Show("서버 연결 성공 및 JSON 전송 완료", "알림", MessageBoxButton.OK, MessageBoxImage.Information);
                 ellipse_status.Fill = Brushes.LimeGreen; // 연결 상태 표시
             }
             else
@@ -768,7 +837,6 @@ namespace MachineEar_MIC
 
         private void StartWavTimer()
         {
-            // 중복 실행 방지
             if (wavTimer != null)
             {
                 wavTimer.Stop();
@@ -779,26 +847,24 @@ namespace MachineEar_MIC
             wavTimer = new System.Timers.Timer(AUDIO_SEND_PERIOD_SEC * 1000);
             wavTimer.Elapsed += async (s, e) =>
             {
-                if (Directory.Exists(wav_file_path)) // 폴더가 유효한지 확인
+                if (Directory.Exists(wav_file_path))
                 {
-                    var files = Directory.GetFiles(wav_file_path, "*.wav");
+                    // 🔍 하위 폴더까지 모든 .wav 파일 가져오기
+                    var files = Directory.GetFiles(wav_file_path, "*.wav", SearchOption.AllDirectories);
                     if (files.Length > 0)
                     {
                         var randomFile = files[new Random().Next(files.Length)];
                         byte[] wavData = File.ReadAllBytes(randomFile);
 
-                        // 🟩 1. 파형 그리기 위해 샘플 추출
                         float[] samples = ReadWavFileSamples(randomFile);
                         UpdateMicLevelUI(samples);
 
-                        // 🟩 2. UI 쓰레드에서 파형 그리기 실행
                         Application.Current.Dispatcher.Invoke(() =>
                         {
-                            DrawWaveform(samples); // 파형 그리기
-                            label_FileName.Content = System.IO.Path.GetFileName(randomFile);
+                            DrawWaveform(samples);
+                            label_FileName.Text = System.IO.Path.GetFileName(randomFile);
                         });
 
-                        // 🟩 3. 서버로 전송
                         await tcpService.SendProtocolAsync(
                             ProtocolName.AudioSend,
                             pin: tcpService.NumPin,
@@ -807,23 +873,28 @@ namespace MachineEar_MIC
                             source: "WAV",
                             fileData: wavData
                         );
+
                         Application.Current.Dispatcher.Invoke(() =>
                         {
-                            label_FileName.Content = System.IO.Path.GetFileName(randomFile);
-                        }); Debug.WriteLine($"[WAV 전송 완료] 파일: {System.IO.Path.GetFileName(randomFile)}, 크기: {wavData.Length} 바이트");
+                            label_FileName.Text = System.IO.Path.GetFileName(randomFile);
+                        });
+
+                        Debug.WriteLine($"[WAV 전송 완료] 파일: {System.IO.Path.GetFileName(randomFile)}, 크기: {wavData.Length} 바이트");
                     }
                     else
                     {
-                        Debug.WriteLine("[WAV 전송] 해당 폴더에 .wav 파일이 존재하지 않습니다.");
+                        Debug.WriteLine("[WAV 전송 실패] 해당 폴더에 .wav 파일이 없습니다.");
                     }
                 }
                 else
                 {
-                    Debug.WriteLine("[WAV 전송] 설정된 wav_file_path 경로가 존재하지 않습니다.");
+                    Debug.WriteLine("[WAV 전송 실패] 선택한 폴더 경로가 존재하지 않습니다.");
                 }
             };
-            wavTimer.Start();
+
+            //wavTimer.Start();
         }
+
 
 
         private bool IsValidIp(string ip)
@@ -856,24 +927,22 @@ namespace MachineEar_MIC
 
         private void btn_mac_connect_Click(object sender, RoutedEventArgs e)
         {
-            if (tcpService == null || !tcpService.IsConnected)
-            {
-                MessageBox.Show("서버에 연결되어 있지 않습니다. 먼저 서버에 연결해주세요.", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
+            //if (tcpService == null || !tcpService.IsConnected)
+            //{
+            //    MessageBox.Show("서버에 연결되어 있지 않습니다. 먼저 서버에 연결해주세요.", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
+            //    return;
+            //}
 
             var dialog = new System.Windows.Forms.FolderBrowserDialog();
-
             if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
             {
                 wav_file_path = dialog.SelectedPath;
-                textbox_ForderName.Text = wav_file_path; // 폴더 경로를 TextBox에 표시
                 Debug.WriteLine($"[선택된 폴더] {wav_file_path}");
 
-                // ✅ 폴더 선택 후 WAV 전송 타이머 시작
-                StartWavTimer();
+                StartWavTimer(); // 🔁 선택한 폴더를 기반으로 타이머 시작
             }
         }
+
 
         // WAV 파일에서 샘플 추출 (16bit PCM, mono/stereo 지원)
         private float[] ReadWavFileSamples(string filePath)
@@ -907,6 +976,19 @@ namespace MachineEar_MIC
                 StrokeThickness = 1
             };
 
+            // 중심선 추가
+            System.Windows.Shapes.Line midLine = new System.Windows.Shapes.Line
+            {
+                X1 = 0,
+                Y1 = height / 2,
+                X2 = width,
+                Y2 = height / 2,
+                Stroke = Brushes.Gray,
+                StrokeThickness = 0.5
+            };
+            canvas_waveform.Children.Add(midLine);
+
+
             int sampleCount = samples.Length;
             int displayCount = width; // 픽셀 수만큼 샘플 표시
             for (int i = 0; i < displayCount; i++)
@@ -934,6 +1016,7 @@ namespace MachineEar_MIC
 
         private void radio_mic_Checked(object sender, RoutedEventArgs e)
         {
+            wavTimer?.Stop();
             btn_browse.IsEnabled = false;
             ComboBox_mic.IsEnabled = true; // 콤보박스 활성화
 
@@ -945,7 +1028,7 @@ namespace MachineEar_MIC
                 ComboBox_mic.Items.Add($"Device {i}: {info.ProductName}");
             }
 
-            Debug.WriteLine("🎤 마이크 장치 리스트 로딩 완료");
+            //Debug.WriteLine("🎤 마이크 장치 리스트 로딩 완료");
         }
 
         private void ComboBox_mic_DropDownClosed(object sender, EventArgs e)
@@ -974,8 +1057,6 @@ namespace MachineEar_MIC
                 micLevelBar.Value = 0;
                 decibelText.Text = "0 dB";
             });
-
-
         }
 
         private void SetConnectionStatus(bool isConnected)
@@ -1071,16 +1152,19 @@ namespace MachineEar_MIC
             micTimer?.Stop();
             waveIn?.StopRecording();
             waveIn?.Dispose();
-            audioBuffer?.Dispose();
+            //audioBuffer?.Dispose();
+            audioBuffer?.SetLength(0);
         }
 
         private void btn_disconnec_Click(object sender, RoutedEventArgs e)
         {
             wavTimer?.Stop(); // WAV 전송 타이머 중지
-            textbox_ForderName.Text = null;
+            micTimer?.Stop(); // 마이크 타이머 중지 (예외 방지)
+
+            //textbox_ForderName.Text = null;
             ellipse_status.Fill = Brushes.Gray; // 연결 상태 표시 (회색)
+
             tcpService?.Disconnect(); // TCP 연결 해제
-            micTimer.Stop();
         }
 
         private void textbox_ForderName_TextChanged(object sender, TextChangedEventArgs e)

@@ -4,6 +4,7 @@
              xmlns:local="clr-namespace:mic2"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        
          
     </Application.Resources>
 </Application>
