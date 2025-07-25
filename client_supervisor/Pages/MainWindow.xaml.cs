@@ -18,11 +18,12 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects; 
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
-using System.Windows.Media.Effects; 
+using System.Collections.Specialized;
 
 
 namespace client_supervisor
@@ -53,7 +54,7 @@ namespace client_supervisor
 
         // 지도 목록
         public ObservableCollection<MapSector> MapSectors { get; set; } = new ObservableCollection<MapSector>();
-        private int idx_map = 0;
+        private int idx_map = 1;
         List<MapSector> Map_Add = new();
         List<int> Map_Removed = new();
         List<MapSector> Map_Modified = new();
@@ -69,7 +70,7 @@ namespace client_supervisor
         public ObservableCollection<string> MACList { get; set; } = new ObservableCollection<string>();
 
         // 고장 원인 종류
-        public Dictionary<int ,string> List_Kind_Error { get; set; } = new Dictionary<int, string>();
+        public Dictionary<int, string> List_Kind_Error { get; set; } = new Dictionary<int, string>();
 
         // 이상 여부 종류
         public Dictionary<int, string> List_Kind_Anomaly { get; set; } = new Dictionary<int, string>();
@@ -84,12 +85,15 @@ namespace client_supervisor
             this.load_serveraddr(this.path_server);
             this.DataContext = this;
 
+            // PinList에 대한 이벤트 핸들러 등록
+            this.PinList.CollectionChanged += this.PinList_Changed;
+
             //Header_Manage_Map.IsEnabled = true;
             //this.MapSectors = this.load_maplist(true);      // 지도 목록 불러오기
         }
         /*-------------------------------------------------------------------*/
         // 로컬 json 파일 제어
-        
+
         // 서버 주소 파일 불러오기
         private void load_serveraddr(string path_meta)
         {
@@ -152,7 +156,7 @@ namespace client_supervisor
                 // 4. 서버에 추가된 도면 파일 전송
 
                 Console.WriteLine($"파일 추가 갯수 : {this.Map_Add.Count}");
-                foreach(MapSector map_add in this.Map_Add)
+                foreach (MapSector map_add in this.Map_Add)
                 {
                     WorkItem item_send = new WorkItem();
 
@@ -190,7 +194,7 @@ namespace client_supervisor
 
             this.MapSectors = this.load_maplist(true);      // 도면 목록 다시 불러오기
         }
-       
+
         /*-------------------------------------------------------------------*/
         // 시간 확인 타이머 설정
         private void InitializeTimer()          // 타이머 초기화하는 메서드 
@@ -263,7 +267,7 @@ namespace client_supervisor
             clientService.ErrorOccurred += ClientService_ErrorOccurred;
             clientService.DataReceived += ClientService_DataReceived;
         }
-        
+
         // --- TcpClientService 이벤트 핸들러 ---
         private void ClientService_ConnectionStatusChanged(object sender, bool isConnected)
         {
@@ -352,6 +356,27 @@ namespace client_supervisor
             // 팝업 종료 및 메인 프레임 사용
             Popup_Connect.IsOpen = false;
             grid_frame.IsEnabled = true;
+
+            // 화면 재배치
+            int idx_sorted = 0;
+            foreach (MapSector map in this.MapSectors)
+            {
+                if (map.Idx == this.idx_map)
+                {
+                    idx_sorted = map.Idx - 1;
+                }
+            }
+
+            foreach (var child in mainCanvas.Children)
+            {
+                if (child is ClientPin pin)
+                {
+                    pin.Visibility = pin.MapIndex == this.MapSectors[idx_sorted].Num_Map ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
+            this.ResetDetailPanel(); // 세부사항 패널 초기화
+            LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[idx_sorted].Path));
+            this.FitToViewer();
         }
         // 서버 연결이 끊어졌을 때 실행되는 메서드
         private void OnDisconnectedFromServer()
@@ -375,6 +400,9 @@ namespace client_supervisor
             Header_Conn.IsEnabled = true;
             Header_Disconn.IsEnabled = false;
 
+            this.List_Daily_Anomaly.Clear();
+
+
         }
 
         // 통합 데이터 수신 이벤트 핸들러
@@ -384,7 +412,7 @@ namespace client_supervisor
             Dispatcher.Invoke(new Action(() =>
             {
                 // 데이터 수신 시 프로토콜 인스턴스 실행
-                WorkItem item = new WorkItem {Protocol = e.Protocol, JsonData = e.JsonData, BinaryData = e.BinaryData };
+                WorkItem item = new WorkItem { Protocol = e.Protocol, JsonData = e.JsonData, BinaryData = e.BinaryData };
 
                 this.ExcuteCommand_Recv(item);
 
@@ -451,7 +479,7 @@ namespace client_supervisor
             foreach (KeyValuePair<int, string> name in dict_name)
             {
                 // 1번은 상황 발생, 즉 초기값이라 버튼에 추가하지 않음.
-                if(name.Key > 1) AddRadioButtonToPanel(wrap_kind_anomaly, name.Value, "Kind_Anomaly");
+                if (name.Key > 1) AddRadioButtonToPanel(wrap_kind_anomaly, name.Value, "Kind_Anomaly");
             }
         }
         // 라디오버튼 활성화, 비활성화
@@ -462,8 +490,8 @@ namespace client_supervisor
                 if (child is RadioButton radioButton)
                 {
                     // 라디오버튼 초기화
-                    radioButton.IsChecked = false; 
-                    radioButton.IsEnabled = state;  
+                    radioButton.IsChecked = false;
+                    radioButton.IsEnabled = state;
                 }
             }
         }
@@ -591,6 +619,15 @@ namespace client_supervisor
             // 핀 추가 사항 채우기
             Window_Add_Pin add_Pin = new Window_Add_Pin(this.MACList);      // MAC 주소 목록을 전달, 콤보박스에 추가
 
+            int idx_sorted = 0;
+            foreach (MapSector map in this.MapSectors)
+            {
+                if (map.Idx == this.idx_map)
+                {
+                    idx_sorted = map.Idx - 1;
+                }
+            }
+
             if (add_Pin.ShowDialog() == true)
             {
                 this.PinList_Add.Clear();
@@ -599,7 +636,7 @@ namespace client_supervisor
                 {
                     Idx = 0,
                     Name_Pin = add_Pin.TextBox_Name.Text,
-                    MapIndex = this.MapSectors[this.idx_map].Idx,
+                    MapIndex = this.MapSectors[idx_sorted].Idx,
                     Name_Location = add_Pin.TextBox_Location.Text,
                     PosX = actualX,
                     PosY = actualY,
@@ -616,7 +653,7 @@ namespace client_supervisor
                 PinAddToCanvas(pin_new);
 
                 // 핀 추가 종료
-                PinModeButton.IsChecked = false; 
+                PinModeButton.IsChecked = false;
                 this.pin_toggle_click(PinModeButton, null);
                 this.PinList_Add.Add(pin_new);      // 생성 목록에 넣기
 
@@ -645,7 +682,7 @@ namespace client_supervisor
             Canvas.SetTop(pin_new, pin_new.PosY);
 
             mainCanvas.Children.Add(pin_new);
-            if(add_list) this.PinList.Add(pin_new);      // 핀 목록에 추가
+            if (add_list) this.PinList.Add(pin_new);      // 핀 목록에 추가
         }
 
         private void pin_toggle_click(object sender, RoutedEventArgs e)
@@ -742,12 +779,22 @@ namespace client_supervisor
         // 지도 페이지 변경, 변경 시 핀의 보임 여부 설정
         private void pb_map_prev_Click(object sender, RoutedEventArgs e)
         {
-            if(this.MapSectors.Count > 0)
+            int idx_sorted = 0;
+
+            if (this.MapSectors.Count > 0)
             {
                 this.idx_map--;
-                if (this.idx_map < 0)
+                if (this.idx_map < 1)
                 {
-                    this.idx_map = this.MapSectors.Count - 1;
+                    this.idx_map = this.MapSectors.Count;
+                }
+
+                foreach (MapSector map in this.MapSectors)
+                {
+                    if (map.Idx == this.idx_map)
+                    {
+                        idx_sorted = map.Idx - 1;
+                    }
                 }
 
                 // 핀 보임 여부 설정
@@ -755,22 +802,31 @@ namespace client_supervisor
                 {
                     if (child is ClientPin pin)
                     {
-                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Num_Map ? Visibility.Visible : Visibility.Collapsed;
+                        pin.Visibility = pin.MapIndex == this.MapSectors[idx_sorted].Num_Map ? Visibility.Visible : Visibility.Collapsed;
                     }
                 }
                 this.ResetDetailPanel(); // 세부사항 패널 초기화
-                LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[this.idx_map].Path));
+                LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[idx_sorted].Path));
                 this.FitToViewer();
             }
         }
         private void pb_map_next_Click(object sender, RoutedEventArgs e)
         {
-            if(this.MapSectors.Count > 0)
+            int idx_sorted = 0;
+            if (this.MapSectors.Count > 0)
             {
                 this.idx_map++;     // 지도 목록 인덱스 증가(표시되는 인덱스가 아닌 컬렉션 인덱스)
-                if (this.idx_map > this.MapSectors.Count - 1)
+                if (this.idx_map > this.MapSectors.Count)
                 {
-                    this.idx_map = 0;
+                    this.idx_map = 1;
+                }
+
+                foreach (MapSector map in this.MapSectors)
+                {
+                    if (map.Idx == this.idx_map)
+                    {
+                        idx_sorted = map.Idx - 1;
+                    }
                 }
 
                 // 핀 보임 여부 설정
@@ -778,11 +834,11 @@ namespace client_supervisor
                 {
                     if (child is ClientPin pin)
                     {
-                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Num_Map ? Visibility.Visible : Visibility.Collapsed;
+                        pin.Visibility = pin.MapIndex == this.MapSectors[idx_sorted].Num_Map ? Visibility.Visible : Visibility.Collapsed;
                     }
                 }
                 this.ResetDetailPanel(); // 세부사항 패널 초기화
-                LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[this.idx_map].Path));
+                LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[idx_sorted].Path));
                 this.FitToViewer();
             }
         }
@@ -798,9 +854,9 @@ namespace client_supervisor
 
                 // 지도 이름 확인
                 string name_map = "";
-                foreach(MapSector map in this.MapSectors)
+                foreach (MapSector map in this.MapSectors)
                 {
-                    if(map.Num_Map == clickedPin.MapIndex)
+                    if (map.Num_Map == clickedPin.MapIndex)
                     {
                         name_map = map.Name_Map;
                         break;
@@ -820,7 +876,7 @@ namespace client_supervisor
                     pb_state_active.Content = "";
                     pb_state_active.IsEnabled = false;
                     label_data_state.Content = "서버와 연결되지 않음";
-                    
+
                 }
                 else
                 {
@@ -831,17 +887,17 @@ namespace client_supervisor
                     pb_proc_commit.IsEnabled = true;
                     pb_proc_init.IsEnabled = true;
 
-                    ResetDetailPanel(true); // 모든 패널 초기화
+                    //ResetDetailPanel(false); // 모든 패널 초기화
 
                     // 이상발생 목록 확인 후 가장 최신 핀 정보로 업데이트, 없으면 초기화
-                    for (int i = 0; i < this.List_Daily_Anomaly.Count; i ++)
+                    for (int i = 0; i < this.List_Daily_Anomaly.Count; i++)
                     {
-                        if (this.List_Daily_Anomaly[i].Pin == clickedPin)
+                        if (this.List_Daily_Anomaly[i].Pin.Idx == clickedPin.Idx)
                         {
                             AnomalyLog log = this.List_Daily_Anomaly[i];
 
                             label_start_datetime.Content = log.Time_Start.ToString("F");
-                            if(log.Time_End == DateTime.MinValue)
+                            if (log.Time_End == DateTime.MinValue)
                             {
                                 label_proc_datetime.Content = "";
                             }
@@ -849,14 +905,20 @@ namespace client_supervisor
                             {
                                 label_proc_datetime.Content = log.Time_End.ToString("F");
                             }
-                                
+
+                            // 이상상황 발생시에는 상황 종료 전까지는 송신 불가
+                            if (log.Code_Anomaly == 1) pb_state_active.IsEnabled = false;
+
                             RadioGroupChangeState();
                             RadioGroupChecked(i);
-                            
+
 
                             textbox_proc_memo.IsEnabled = true;
                             textbox_proc_manager.IsEnabled = true;
                             label_proc_kind.Content = this.List_Kind_Error[log.Code_Error].ToString();
+
+                            textbox_proc_manager.Text = log.Worker;
+                            textbox_proc_memo.Text = log.Memo;
 
                             // 현재 클릭된 상황을 저장
                             this.CurrentClickedAnomaly = log;
@@ -865,14 +927,25 @@ namespace client_supervisor
                     }
                 }
 
+                // 화면 재배치
+                int idx_sorted = 0;
+                foreach (MapSector map in this.MapSectors)
+                {
+                    if (map.Idx == this.idx_map)
+                    {
+                        idx_sorted = map.Idx - 1;
+                    }
+                }
+
                 foreach (var child in mainCanvas.Children)
                 {
                     if (child is ClientPin pin)
                     {
-                        pin.Visibility = pin.MapIndex == this.MapSectors[this.idx_map].Num_Map ? Visibility.Visible : Visibility.Collapsed;
+                        pin.Visibility = pin.MapIndex == this.MapSectors[idx_sorted].Num_Map ? Visibility.Visible : Visibility.Collapsed;
                     }
                 }
-                this.LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[this.idx_map].Path));
+
+                this.LoadImageSafely(System.IO.Path.Combine(this.path_maps, this.MapSectors[idx_sorted].Path));
                 //this.FitToViewer();
             }
         }
@@ -908,12 +981,12 @@ namespace client_supervisor
                 label_data_manager.ClearValue(ContentProperty);
                 label_data_state.ClearValue(ContentProperty);
             }
-            
+
             // 하단
             label_start_datetime.ClearValue(ContentProperty);
             label_proc_datetime.ClearValue(ContentProperty);
             label_proc_kind.ClearValue(ContentProperty);
-               
+
             pb_state_active.Content = "";
             pb_state_active.IsEnabled = false;
 
@@ -932,9 +1005,9 @@ namespace client_supervisor
         {
             textbox_proc_memo.Text = "";
             textbox_proc_manager.Text = "";
-            
+
             // 모든 라디오버튼 선택 해제
-            foreach(object child in parentPanel.Children)
+            foreach (object child in parentPanel.Children)
             {
                 RadioButton? radioButton = child as RadioButton;
                 radioButton.IsChecked = false;
@@ -988,7 +1061,7 @@ namespace client_supervisor
                     bitmap.CacheOption = BitmapCacheOption.OnLoad;
                     bitmap.EndInit();
                     bitmap.Freeze();
-                } 
+                }
 
                 baseImage.Source = bitmap;
             }
@@ -1005,10 +1078,10 @@ namespace client_supervisor
             // 현재 클릭되어 우측에 표시된 핀에 대하여 라벨로 상태 확인 후 작동, 대기 상태 전환 요청
             Int32.TryParse(label_data_pin.Content.ToString(), out int num_pin);
             // 현재 클릭된 핀 번호 및 STATE_ACTIVE 획득
-            for(int i = 0; i < this.PinList.Count; i ++)
+            for (int i = 0; i < this.PinList.Count; i++)
             {
                 // 목록의 핀 번호와 현재 선택된 핀 번호가 같다면
-                if(this.PinList[i].Idx == num_pin)
+                if (this.PinList[i].Idx == num_pin)
                 {
                     WorkItem item = new WorkItem();
                     item.Protocol = "1-1-1";
@@ -1017,7 +1090,7 @@ namespace client_supervisor
                     // STATE_ACTIVE 상태 변경, bool이라서 반전 실행
                     this.PinList[i].State_Active = !this.PinList[i].State_Active;
                     item.JsonData["STATE_ACTIVE"] = this.PinList[i].State_Active;
-                    
+
                     await this.ExcuteCommand_Send(item);      // 1-1-1 송신
 
                     // 핀 상태 변경 조회
@@ -1067,11 +1140,11 @@ namespace client_supervisor
                     arr_remove.Add(this.log_total.List_remove[i]);
                 }
                 item.JsonData["REMOVED"] = arr_remove;
-                
+
                 this.ExcuteCommand_Send(item); // 전송
             }
 
-            if(this.log_total != null)
+            if (this.log_total != null)
             {
                 this.log_total.Close();
                 this.log_total = null;
@@ -1150,7 +1223,7 @@ namespace client_supervisor
                 {
                     label_proc_datetime.Content = clicked.Time_End.ToString();
                 }
-                
+
                 label_proc_kind.Content = clicked.Str_Error.ToString();
                 // 처리종류는 라디오버튼 wrap_kind_anomaly
                 textbox_proc_manager.Text = clicked.Worker.ToString();
@@ -1173,6 +1246,20 @@ namespace client_supervisor
                     pb_state_active.Content = selectedLog.Pin.State_Active ? "정지" : "작동";
                     pb_state_active.IsEnabled = true;
 
+                    // 이상 내역에 존재할 때
+                    for (int j = 0; j < this.List_Daily_Anomaly.Count; j++)
+                    {
+                        // 최신으로부터 수신하여 현재 연결된 핀과 같은 핀이 존재할 경우, 색상 변경
+                        if (this.List_Daily_Anomaly[j].Pin.Idx == selectedLog.Pin.Idx)
+                        {
+                            if (this.List_Daily_Anomaly[j].Code_Anomaly == 1)
+                            {
+                                pb_state_active.IsEnabled = false;
+                            }
+                            break;
+                        }
+                    }
+
                     pb_proc_commit.IsEnabled = true;
                     pb_proc_init.IsEnabled = true;
                 }
@@ -1194,6 +1281,71 @@ namespace client_supervisor
                 }
 
                 this.CurrentClickedAnomaly = selectedLog; // 현재 클릭한 항목에 대하여 주소 저장
+
+                // 해당 항목 클릭 시 지도 페이지 이동
+            }
+        }
+
+        // ObservableCollection<ClientPin> PinList가 변화되었을 때, 화면에 출력되지않게 refresh
+        private void PinList_Changed(object sender, NotifyCollectionChangedEventArgs e)
+        {
+            int idx_sorted = 0;
+            foreach (MapSector map in this.MapSectors)
+            {
+                if (map.Idx == this.idx_map)
+                {
+                    idx_sorted = map.Idx - 1;
+                }
+            }
+
+            // 핀 보임 여부 설정
+            foreach (var child in mainCanvas.Children)
+            {
+                if (child is ClientPin pin)
+                {
+                    pin.Visibility = pin.MapIndex == this.MapSectors[idx_sorted].Num_Map ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
+
+            foreach (ClientPin newPin in this.PinList)
+            {
+                // 색상 변경
+                if (newPin.State_Connect == false)
+                {
+                    newPin.ChangeColorMode(STATE_COLOR.OFFLINE);
+                }
+                else
+                {
+                    bool flag_anomaly = false;
+
+                    // 이상 내역에 존재할 때
+                    for (int j = 0; j < this.List_Daily_Anomaly.Count; j++)
+                    {
+                        // 최신으로부터 수신하여 현재 연결된 핀과 같은 핀이 존재할 경우, 색상 변경
+                        if (this.List_Daily_Anomaly[j].Pin.Idx == newPin.Idx)
+                        {
+                            if (this.List_Daily_Anomaly[j].Code_Anomaly == 1)
+                            {
+                                newPin.ChangeColorMode(STATE_COLOR.ANOMALY);
+                                flag_anomaly = true;
+                            }
+                            break;
+                        }
+                    }
+
+                    // 이상이 없을때만 대기, 작업 색상 업데이트
+                    if (flag_anomaly == false)
+                    {
+                        if (newPin.State_Active == false)
+                        {
+                            newPin.ChangeColorMode(STATE_COLOR.STANDBY);
+                        }
+                        else
+                        {
+                            newPin.ChangeColorMode(STATE_COLOR.WORKING);
+                        }
+                    }
+                }
             }
         }
     }

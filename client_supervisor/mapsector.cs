@@ -78,7 +78,8 @@ namespace client_supervisor
             if (showimage && mapSectors.Count > 0)
             {
                 LoadImageSafely(Path.Combine(path_maps, mapSectors.First().Path));
-                this.idx_map = 0;
+
+                this.idx_map = 1;
                 this.FitToViewer();
             }
 

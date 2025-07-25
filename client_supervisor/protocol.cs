@@ -313,12 +313,15 @@ namespace client_supervisor
 
             JArray arr_data = item.JsonData["DATA"] as JArray;
 
+            for(int i = 0; i < this.PinList.Count; i++)
+            {
+                if (this.PinList[i].Idx == 0) this.PinList.RemoveAt(i);
+            }
+
             // 1. 새로 수신된 핀 데이터를 임시 리스트에 파싱
             List<ClientPin> newPins = new List<ClientPin>();
             foreach (JObject obj_pin in arr_data)
             {
-                // 여기서는 기존 PinUIElement는 할당하지 않습니다.
-                // PinAddToCanvas에서 생성하거나 재활용할 것이기 때문입니다.
                 ClientPin pin_new = new ClientPin
                 {
                     Idx = obj_pin["NUM_PIN"].Value<int>(),
@@ -388,13 +391,34 @@ namespace client_supervisor
                 }
                 else
                 {
-                    if (newPin.State_Active == false)
+                    bool flag_anomaly = false;
+
+                    // 이상 내역에 존재할 때
+                    for (int j = 0; j < this.List_Daily_Anomaly.Count; j++)
                     {
-                        newPin.ChangeColorMode(STATE_COLOR.STANDBY);
+                        // 최신으로부터 수신하여 현재 연결된 핀과 같은 핀이 존재할 경우, 색상 변경
+                        if (this.List_Daily_Anomaly[j].Pin.Idx == newPin.Idx)
+                        {
+                            if (this.List_Daily_Anomaly[j].Code_Anomaly == 1)
+                            {
+                                newPin.ChangeColorMode(STATE_COLOR.ANOMALY);
+                                flag_anomaly = true;
+                            }
+                            break;
+                        }
                     }
-                    else
+
+                    // 이상이 없을때만 대기, 작업 색상 업데이트
+                    if(flag_anomaly == false)
                     {
-                        newPin.ChangeColorMode(STATE_COLOR.WORKING);
+                        if (newPin.State_Active == false)
+                        {
+                            newPin.ChangeColorMode(STATE_COLOR.STANDBY);
+                        }
+                        else
+                        {
+                            newPin.ChangeColorMode(STATE_COLOR.WORKING);
+                        }
                     }
                 }
             }
@@ -487,6 +511,24 @@ namespace client_supervisor
                         }
                         break;
                     }
+                }
+            }
+
+            int idx_sorted = 0;
+            foreach (MapSector map in this.MapSectors)
+            {
+                if (map.Idx == this.idx_map)
+                {
+                    idx_sorted = map.Idx - 1;
+                }
+            }
+
+            // 핀 보임 여부 설정
+            foreach (var child in mainCanvas.Children)
+            {
+                if (child is ClientPin pin)
+                {
+                    pin.Visibility = pin.MapIndex == this.MapSectors[idx_sorted].Num_Map ? Visibility.Visible : Visibility.Collapsed;
                 }
             }
         }
