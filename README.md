@@ -78,7 +78,7 @@
 ## 📮 문의 / 개발자 연락
 
 - 팀장: 박주영  
-- 개발 문의: [깃허브 이슈](https://github.com/your-repo/MachineEar/issues) 또는 이메일
+- 개발 문의: [깃허브 이슈](https://github.com/joo2coding/MachineEar/issues) 또는 이메일
 
 ---
 
