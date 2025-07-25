@@ -1,0 +1,34 @@
+﻿<Window x:Class="client_supervisor.Window_Setup_Server"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:client_supervisor"
+        mc:Ignorable="d"
+        Title="서버 접속 설정" Height="150" Width="200">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="3*"/>
+        </Grid.ColumnDefinitions>
+
+        <Label Content="IP" Grid.Row="0" Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <TextBox x:Name="TextBox_IP" Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" Margin="5,5,5,5"
+                 TextWrapping="NoWrap"/>
+
+        <Label Content="PORT" Grid.Row="1" Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <TextBox x:Name="TextBox_PORT" Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" Margin="5,5,5,5"
+                 TextWrapping="NoWrap"/>
+
+        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="pb_ok" Content="확인" Width="50" Margin="5,5,5,5" Click="pb_ok_Click"/>
+            <Button x:Name="pb_no" Content="취소" Width="50" Margin="5,5,5,5" Click="pb_no_Click"/>
+        </StackPanel> 
+    </Grid>
+</Window>

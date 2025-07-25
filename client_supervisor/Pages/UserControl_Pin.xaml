@@ -1,0 +1,15 @@
+﻿<UserControl x:Class="client_supervisor.ClientPin"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:client_supervisor"
+             mc:Ignorable="d" 
+             d:DesignHeight="45" d:DesignWidth="45" Width="45" Height="45">
+    <Grid Margin="0,0,45,45">
+        <Ellipse x:Name="pin_icon" Margin="0,0,-45,-45" Stroke="White" Panel.ZIndex="0" StrokeThickness="9"
+                 Cursor="Hand" MouseLeftButtonDown="pin_icon_MouseLeftButtonDown"
+                 Fill="Transparent"/>
+
+    </Grid>
+</UserControl>

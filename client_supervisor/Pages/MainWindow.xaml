@@ -1,0 +1,352 @@
+﻿<Window x:Class="client_supervisor.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:client_supervisor"
+        mc:Ignorable="d"
+        Title="MachineEar - Supervisor" Height="900" Width="1200">
+
+    <Window.Resources>
+        <local:TimeEndConverter x:Key="timeEndDefaultHider"/>
+    </Window.Resources>
+
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="File">
+                <MenuItem Header="종료" Click="Click_Exit"/>
+            </MenuItem>
+
+            <MenuItem Header="Edit">
+                <MenuItem x:Name="Header_Manage_Map" Header="지도 관리" Click="ClickManageMap" IsEnabled="False"/>
+                <MenuItem x:Name="Header_Manage_Pin" Header="핀 관리" Click="ClickManagePin" IsEnabled="False"/>
+            </MenuItem>
+
+            <MenuItem Header="Log">
+                <MenuItem x:Name="Header_Log" Header="이전 기록" Click="pb_log_Click" IsEnabled="False"/>
+            </MenuItem>
+
+            <MenuItem Header="Network">
+                <MenuItem x:Name="Header_Conn" Header="서버 연결" Click="ConnTCP_Click"/>
+                <MenuItem x:Name="Header_Disconn" Header="서버 연결 끊기" Click="DisconnTCP_Click" IsEnabled="False"/>
+                <MenuItem Header="서버 정보 수정" Click="EditTCP_Click "/>
+            </MenuItem>
+        </Menu>
+
+        <Grid x:Name="grid_frame" Margin="5,5,5,5">
+            
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"></ColumnDefinition>
+                <ColumnDefinition Width="0.2*"></ColumnDefinition>
+            </Grid.ColumnDefinitions>
+
+            <Grid.RowDefinitions>
+                <RowDefinition Height="0.05*"></RowDefinition>
+                <RowDefinition Height="*"></RowDefinition>
+            </Grid.RowDefinitions>
+
+            <Popup x:Name="Popup_Connect" Placement="Center" AllowsTransparency="True"
+               StaysOpen="True" IsOpen="False" PopupAnimation="Fade">
+                <Border BorderBrush="LightGray" BorderThickness="1" Background="White" CornerRadius="5" Padding="20">
+                    <StackPanel VerticalAlignment="Center">
+                        <Label x:Name="Popup_Content" Content="서버 연결 중..." FontSize="16" Margin="0,0,0,10" HorizontalAlignment="Center"/>
+                        <ProgressBar x:Name ="Popup_Progress" IsIndeterminate="True" Width="200" Height="20" Margin="0,0,0,20"/>
+                        <Button x:Name ="Popup_Pb" Content="취소" Click="DisconnTCP_Click" Width="80" Height="30" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Popup>
+
+            <Grid Grid.Row="0" Grid.Column="0">
+                <StackPanel Orientation="Vertical" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
+                        <TextBlock Text="현재일시 : " VerticalAlignment="Center"></TextBlock>
+                        <Label x:Name="label_dt_curr" VerticalAlignment="Center"></Label>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
+                        <TextBlock Text="네트워크 상태 : " VerticalAlignment="Center"></TextBlock>
+                        <Label x:Name="label_socket" Content="연결 끊김" VerticalAlignment="Center"></Label>
+                    </StackPanel>
+                </StackPanel>
+                
+                
+            </Grid>
+
+            <Grid Grid.Row="0" Margin="5,0,0,0" Grid.Column="1">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,5,0">
+                    <Button x:Name="PbStateDeactiveAll" Content="전체 정지" Margin="0,0,5,0" Click="pbStateDectiveAll_Click" IsEnabled="False"></Button>
+                    <Button x:Name="pbStateactiveAll" Content="전체 가동" Margin="5,0,0,0" Click="pbStateActiveAll_Click" IsEnabled="False"></Button>
+                </StackPanel>
+            </Grid>
+
+            <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" x:Name="grid_main" Margin="0,5,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="0.7*"></ColumnDefinition>
+                    <ColumnDefinition Width="0.3*"></ColumnDefinition>
+                </Grid.ColumnDefinitions>
+
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="0.7*"></RowDefinition>
+                    <RowDefinition Height="0.3*"></RowDefinition>
+                </Grid.RowDefinitions>
+                <Border BorderBrush="Gray" BorderThickness="1" Margin="0,0,5,5">
+                    <Grid>
+                        <ScrollViewer Grid.Row="1" x:Name="scrollViewer" 
+                            HorizontalScrollBarVisibility="Hidden"
+                            VerticalScrollBarVisibility="Hidden"
+                            SizeChanged="ScrollViewer_SizeChanged"
+                            PreviewMouseWheel="ScrollViewer_PreviewMouseWheel">
+
+                            <Grid x:Name="contentGrid">
+                                <Grid.LayoutTransform>
+                                    <ScaleTransform x:Name="scaleTransform" ScaleX="1.0" ScaleY="1.0" />
+                                </Grid.LayoutTransform>
+                                <Image x:Name="baseImage" 
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+                                <!-- 마우스 우클릭 이벤트를 추가하여 마커를 생성합니다. -->
+                                <Canvas x:Name="mainCanvas" Background="Transparent"
+                                        MouseLeftButtonDown="canvas_pin_add"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                                        Width="{Binding ElementName=baseImage, Path=ActualWidth}"
+                                        Height="{Binding ElementName=baseImage, Path=ActualHeight}"/>
+                            </Grid>
+                        </ScrollViewer>
+
+                        <Grid VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10">
+                            <StackPanel Orientation="Horizontal">
+                                <ToggleButton Content="핀 추가" x:Name="PinModeButton" Width="60" Height="20" Margin="2" Click="pin_toggle_click" Background="{DynamicResource {x:Static SystemColors.InactiveCaptionBrushKey}}"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid VerticalAlignment="Top" HorizontalAlignment="Right" Margin="10">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="배율 리셋" Width="60" Height="20" Margin="2" Click="ResetZoom_Click" Background="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
+                                <Button x:Name="pb_map_prev" Content="◀" Width="30" Height="20" Margin="2" Background="{DynamicResource {x:Static SystemColors.ActiveCaptionBrushKey}}" Click="pb_map_prev_Click"/>
+                                <Button x:Name="pb_map_next" Content="▶" Width="30" Height="20" Margin="2" Background="{DynamicResource {x:Static SystemColors.ActiveCaptionBrushKey}}" Click="pb_map_next_Click"/>
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <Border BorderBrush="Gray" BorderThickness="1" Grid.Row="1" Margin="0,5,5,0">
+                    <DataGrid x:Name="table_daily" AutoGenerateColumns="False" CanUserAddRows="False" ItemsSource="{Binding List_Daily_Anomaly}" SelectionChanged="table_daily_SelectionChanged">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="No." Binding="{Binding Path=Idx}" IsReadOnly="True" Width="0.075*">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="{x:Type DataGridColumnHeader}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="핀 번호" Binding="{Binding Path=Pin.Idx}" IsReadOnly="True" Width="0.1*">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="{x:Type DataGridColumnHeader}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="발생일시" Binding="{Binding Path=Time_Start}" IsReadOnly="True" Width="0.2*">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="{x:Type DataGridColumnHeader}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="처리일시" Binding="{Binding Path=Time_End, Converter={StaticResource timeEndDefaultHider}}" IsReadOnly="True" Width="0.2*">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="{x:Type DataGridColumnHeader}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="발생위치" Binding="{Binding Path=Name_Loc}" IsReadOnly="True" Width="0.2*">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="{x:Type DataGridColumnHeader}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                            </DataGridTextColumn>
+
+                            <DataGridTextColumn Header="발생원인" Binding="{Binding Path=Str_Error}" IsReadOnly="True" Width="0.2*">
+                                <DataGridTextColumn.HeaderStyle>
+                                    <Style TargetType="{x:Type DataGridColumnHeader}">
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </DataGridTextColumn.HeaderStyle>
+                            </DataGridTextColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Border>
+
+                <Border BorderBrush="White" BorderThickness="1" Grid.Column="1" Grid.RowSpan="2" Margin="5,0,0,0">
+                    <Grid x:Name="grid_detail" >
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"></RowDefinition>
+                            <RowDefinition Height="2*"></RowDefinition>
+                        </Grid.RowDefinitions>
+
+                        <Grid Grid.Row="0">
+                            <GroupBox Header="핀 데이터">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="0.2*"/>
+                                        <ColumnDefinition Width="0.8*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="0" Grid.Column="0">
+                                        <Label x:Name="content_data_map"  Content="지도 이름" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="0" Grid.Column="1">
+                                        <Label x:Name="label_data_map" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+                                    
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="1" Grid.Column="0">
+                                        <Label x:Name="content_data_pin"  Content="핀 번호" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="1" Grid.Column="1">
+                                        <Label x:Name="label_data_pin" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="2" Grid.Column="0">
+                                        <Label x:Name="content_data_name"  Content="핀 이름" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="2" Grid.Column="1">
+                                        <Label x:Name="label_data_name" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="3" Grid.Column="0">
+                                        <Label x:Name="content_data_loc"  Content="위치" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="3" Grid.Column="1">
+                                        <Label x:Name="label_data_loc" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="4" Grid.Column="0">
+                                        <Label x:Name="content_data_manager"  Content="담당자" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="4" Grid.Column="1">
+                                        <Label x:Name="label_data_manager" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0.5,0.5" Grid.Row="5" Grid.Column="0">
+                                        <Label x:Name="content_data_state"  Content="작동상태" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                    </Border>
+                                    <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="5" Grid.Column="1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="3*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            
+                                            <Label x:Name="label_data_state" Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center"></Label>
+                                            <Button x:Name="pb_state_active" Grid.Column="1" IsEnabled="False" Click="pb_state_active_Click"/>
+                                            
+                                        </Grid>
+                                    </Border>
+
+                                </Grid>
+                            </GroupBox>
+                        </Grid>
+
+                        <Grid Grid.Row="1">
+                            <GroupBox Header="상황 발생시 처리">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="0.9*"/>
+                                        <RowDefinition Height="0.1*"/>
+                                    </Grid.RowDefinitions>
+
+                                    <Grid Grid.Row="0">
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*"/>
+                                                <RowDefinition Height="*"/>
+                                                <RowDefinition Height="*"/>
+                                                <RowDefinition Height="*"/>
+                                                <RowDefinition Height="*"/>
+                                                <RowDefinition Height="8*"/>
+                                            </Grid.RowDefinitions>
+
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="2*"/>
+                                                <ColumnDefinition Width="8*"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0.5" Grid.Row="0" Grid.Column="0">
+                                                <Label x:Name="content_start_datetime"  Content="발생일시" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                            </Border>
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="0" Grid.Column="1">
+                                                <Label x:Name="label_start_datetime" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                            </Border>
+
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0.5" Grid.Row="1" Grid.Column="0">
+                                                <Label x:Name="content_proc_datetime"  Content="처리일시" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                            </Border>
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="1" Grid.Column="1">
+                                                <Label x:Name="label_proc_datetime" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                            </Border>
+
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0.5" Grid.Row="2" Grid.Column="0">
+                                                <Label x:Name="content_proc_error"  Content="발생원인" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                            </Border>
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="2" Grid.Column="1">
+                                                <Label x:Name="label_proc_kind"  VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                            </Border>
+
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0.5" Grid.Row="3" Grid.Column="0">
+                                                <Label x:Name="content_proc_kind"  Content="처리종류" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                            </Border>
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="3" Grid.Column="1">
+                                                <WrapPanel x:Name="wrap_kind_anomaly" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center"></WrapPanel>
+                                            </Border>
+
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0.5" Grid.Row="4" Grid.Column="0">
+                                                <Label x:Name="content_proc_manager"  Content="처리자" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                            </Border>
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="4" Grid.Column="1">
+                                                <TextBox x:Name="textbox_proc_manager" TextWrapping="NoWrap" VerticalAlignment="Center" IsEnabled="False"/>
+                                            </Border>
+
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0.5, 0.5" Grid.Row="5" Grid.Column="0">
+                                                <Label x:Name="content_proc_memo"  Content="메모" VerticalAlignment="Center" HorizontalAlignment="Center"></Label>
+                                            </Border>
+                                            <Border BorderBrush="Gray" BorderThickness="0,0,0,0.5" Grid.Row="5" Grid.Column="1">
+                                                <TextBox x:Name="textbox_proc_memo" TextWrapping="Wrap" IsEnabled="False"/>
+                                            </Border>
+                                        </Grid>
+                                    </Grid>
+
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button x:Name="pb_proc_init" Content="초기화" Width="50" Height="25" Margin="0,0,5,0" IsEnabled="False" Click="pb_proc_init_Click"/>
+                                        <Button x:Name="pb_proc_commit" Content="적용" Width="50" Height="25" IsEnabled="False" Click="pb_proc_commit_Click"/>
+                                    </StackPanel>
+                                </Grid>
+                            </GroupBox>
+                        </Grid>
+
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </DockPanel>
+</Window>
